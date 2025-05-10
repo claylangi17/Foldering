@@ -33,6 +33,9 @@
     - Fixed MySQL access denied errors by correcting `.env` file parsing and `load_dotenv()` usage.
     - Addressed `KeyError` in pandas `.loc` by aligning DataFrame indices.
     - Corrected frontend display issues by aligning Pydantic models, service data mapping, and frontend data access.
+- **Full project uploaded to GitHub repository `claylangi17/Foldering` on the `main` branch.**
+- Initialized local Git repository.
+- Resolved embedded Git repository issue in the `frontend` directory.
 
 ## 3. Next Steps
 1.  **Finalize Testing**: Complete end-to-end testing of the ETL -> Folder Generation (with refined rules) -> Frontend Navigation -> Item Display flow.
@@ -47,11 +50,15 @@
 - **User Experience for Folders**: The "Google Drive-like" navigation for the 2-level folder structure remains a core UX requirement.
 - **Data Integrity**: Ensure all data transformations and displays are accurate.
 - **Parsing Rule Maintainability**: The set of parsing rules will likely need to grow and be maintained as new item types are encountered. Consider how to make this manageable.
+- Decision: Use `main` as the primary Git branch.
+- Decision: Track `frontend` directory files directly in the main project, not as a submodule.
 
 ## 5. Important Patterns & Preferences (Emerging)
 - **Structured Documentation**: The Memory Bank system is central.
 - **Iterative Development & Testing**: The shift in requirements highlighted the need for quick iteration, testing, and debugging across the full stack.
 - **User-Centric Design**: The folder structure is now directly tied to user-defined examples and expected categorization.
+- Ensured `.gitignore` correctly excludes `.env` and `.venv`.
+- Handled Git warning regarding embedded repositories by removing the nested `.git` folder and re-adding files.
 
 ## 6. Learnings & Project Insights
 - The project's classification approach has fundamentally changed from ML-driven clustering to explicit rule-based parsing. This requires significant changes to the "ML" components.

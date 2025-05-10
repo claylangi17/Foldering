@@ -32,6 +32,7 @@
     - `layer_definitions` table populated with L1 and L2 parsed folder names and hierarchy.
     - `item_classifications` table links POs to their L2 folder names.
 - **Troubleshooting**: Resolved various issues related to Python module imports, `.env` parsing, database access, Pandas indexing, Pydantic model mapping, and frontend data display.
+- **SETUP & VERSION CONTROL COMPLETE**: The project is now initialized as a Git repository and the full codebase has been pushed to the GitHub repository `claylangi17/Foldering` on the `main` branch.
 
 ## 2. What's Left to Build (High-Level - based on original brief, adapted for parsing)
 - **Further Refinement of Parsing Rules (Iterative)**: While initial refinements (INK, TONER, dimensional) are complete, the parsing logic will likely need ongoing refinement based on more diverse item descriptions to improve accuracy and reduce "UNCATEGORIZED" items.
@@ -64,3 +65,8 @@
 - **Database Schema for Layers**: `layer_definitions` now stores parsed folder names as `cluster_label_id` and `descriptive_name`. `item_classifications` links PO items directly to their L2 folder name.
 - **API for Layers**: Modified to support slug-based navigation reflecting the L1/L2 parsed folder hierarchy.
 - **ETL Trigger**: Implemented as API-triggered; scheduling can be added later if needed.
+- **2025-05-09**: Shifted from ML-based clustering to explicit rule-based parsing for item classification due to complexity and ambiguity of ML approach for current requirements.
+- **2025-05-10**: Initialized Git repository for the project.
+- **2025-05-10**: Decided to use `main` as the primary Git branch.
+- **2025-05-10**: Resolved embedded Git repository issue with `frontend` by tracking its files directly in the main project.
+- **2025-05-10**: Successfully pushed the initial version of the project to GitHub: `claylangi17/Foldering`.
