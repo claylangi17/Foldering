@@ -1,0 +1,23 @@
+# Python Dependencies
+
+# Backend Framework
+fastapi
+uvicorn[standard] # For running FastAPI server
+
+# Database Connectors
+pyodbc # For SQL Server
+mysql-connector-python # For MySQL
+
+# Data Handling
+pandas
+
+# Machine Learning
+sentence-transformers
+scikit-learn
+# hdbscan # Uncomment if HDBSCAN is chosen
+
+# Environment Variable Management
+python-dotenv
+
+# Optional: For scheduling if not using OS-level cron/task scheduler
+# apscheduler
