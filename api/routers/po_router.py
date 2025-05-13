@@ -1,13 +1,15 @@
-from fastapi import APIRouter, HTTPException, Query, Path, Body
+from fastapi import APIRouter, HTTPException, Query, Path, Body, Depends
 from typing import List, Optional
 
 # Import actual schemas and service functions
 from ..schemas.po_schemas import PurchaseOrder as PurchaseOrderResponseSchema
 from ..schemas.po_schemas import PurchaseOrderCreate as PurchaseOrderCreateSchema
 from ..schemas.po_schemas import PurchaseOrderUpdate as PurchaseOrderUpdateSchema
+from ..schemas import user_schemas  # For UserInDB type hint
 # Assuming PurchaseOrderList is also defined in po_schemas for a paginated response
 # from ..schemas.po_schemas import PurchaseOrderList
 from ..services import po_service
+from ..core.dependencies import get_current_active_spv_user  # Import SPV dependency
 
 router = APIRouter(
     prefix="/purchase-orders",
@@ -82,10 +84,14 @@ async def create_purchase_order(po_data: PurchaseOrderCreateSchema = Body(...)):
 async def update_purchase_order_fields(
     po_id: int = Path(...,
                       description="The ID of the purchase order to update"),
-    update_data: PurchaseOrderUpdateSchema = Body(...)  # Using imported schema
+    # Using imported schema
+    update_data: PurchaseOrderUpdateSchema = Body(...),
+    current_user: user_schemas.UserInDB = Depends(
+        get_current_active_spv_user)  # Secure endpoint
 ):
     """
     Update specific fields of a purchase order (e.g., Checklist, Keterangan).
+    Only accessible by users with 'spv' role.
     (Service layer for update not yet implemented)
     """
     print(

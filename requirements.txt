@@ -2,6 +2,7 @@
 
 # Backend Framework
 fastapi
+python-multipart # For form data parsing in FastAPI
 uvicorn[standard] # For running FastAPI server
 
 # Database Connectors
@@ -18,6 +19,11 @@ scikit-learn
 
 # Environment Variable Management
 python-dotenv
+
+# Security (Authentication & Authorization)
+passlib[bcrypt] # For password hashing
+python-jose[cryptography] # For JWT tokens
+email-validator # For Pydantic email validation
 
 # Optional: For scheduling if not using OS-level cron/task scheduler
 # apscheduler

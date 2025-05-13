@@ -1,57 +1,76 @@
 # Progress: AI-Powered Purchase Order Classification System
 
 ## 1. What Works / Completed
-- **Memory Bank Initialized & Updated**: All core documentation files are in place and have been updated to reflect the shift to a parsing-based classification system.
-- **ETL Pipeline**: Functional ETL script (`etl/etl_script.py`) to extract data from SQL Server, perform transformations (add calculated columns, default user-editable fields), and load into MySQL `purchase_orders` table. Triggerable via API.
-- **Parsing-Based Folder Generation (`ml/training_pipeline.py`)**:
-    - Reads item descriptions from `purchase_orders`.
-    - Implemented and refined `parse_item_description_for_folders` with new patterns (INK, TONER, dimensional products) and re-ordered rules for better specificity.
-    - Populates `layer_definitions` with L1 and L2 folder names, including parent-child links between L1 and L2.
-    - Populates `item_classifications` linking each PO item to its L2 folder name.
-    - Includes logic to clear previous parsed data before regeneration.
-- **New Item Classification (`ml/inference.py`)**:
-    - `classify_item_by_parsing` function uses the same *refined* parsing logic as in `training_pipeline.py` to determine L1/L2 folders for new descriptions.
+- **Memory Bank Initialized & Updated**: All core documentation files are in place and regularly updated.
+- **ETL Pipeline**: Functional ETL script (`etl/etl_script.py`) for SQL Server to MySQL data transfer and transformation.
+- **Parsing-Based Folder Generation (`ml/training_pipeline.py`, `ml/inference.py`)**: Core logic for 2-level folder structure based on item description parsing.
 - **Backend API (FastAPI)**:
-    - `/process/trigger-etl`: Successfully triggers the ETL.
-    - `/process/train-ml-model`: Successfully triggers the `run_folder_generation_pipeline`.
-    - `/process/classify-new-item`: Uses parsing logic for new items.
-    - `/classification/layers/{slug:path}`: Fetches L1 and L2 folder definitions hierarchically.
-    - `/classification/item-details-by-layer-definition-pk/{pk}`: Fetches PO items for a given L2 folder.
-    - Pydantic schemas updated for data validation.
-    - Services (`classification_service.py`) updated for new data fetching logic.
+    - Endpoints for ETL, folder generation, new item classification, and hierarchical layer/item data retrieval.
+    - **Authentication & Authorization**:
+        - User registration (`/auth/register`) and login (`/auth/token`) endpoints.
+        - Password hashing (`security.py`) and JWT token creation.
+        - User service (`auth_service.py`) for user management.
+        - Dependency for current user (`dependencies.py`), including SPV role check.
+        - `/auth/users/me` endpoint to get current user details.
+        - Secured `PUT /purchase-orders/{po_id}` endpoint for SPV role.
+    - **Cumulative per Item Feature**:
+        - `classification_service.py` modified to calculate `Cumulative_Item_QTY` and `Cumulative_Item_Amount_IDR` via SQL window functions.
+        - `po_schemas.py` updated with new cumulative fields.
+    - **Mini Dashboard**:
+        - Created `dashboard_schemas.py` for response model.
+        - Created `dashboard_service.py` to aggregate data (total POs, total amount, L1/L2 category counts).
+        - Created `dashboard_router.py` with `/mini-summary` endpoint.
+        - Integrated dashboard router into `main.py`.
 - **Frontend (Next.js + Shadcn UI)**:
-    - ETL parameter form successfully triggers backend ETL.
-    - `/layers/[[...slug]]/page.tsx`:
-        - Displays L1 parsed folders.
-        - Allows navigation to L2 parsed folders (specific item types).
-        - Displays a table of PO items when an L2 folder is selected, showing all requested columns.
-        - Handles URL slug parsing for hierarchical navigation.
-        - `React.use(params)` implemented for compatibility.
-- **Database (MySQL - `foldering_ai`)**:
-    - `purchase_orders` table populated by ETL.
-    - `layer_definitions` table populated with L1 and L2 parsed folder names and hierarchy.
-    - `item_classifications` table links POs to their L2 folder names.
-- **Troubleshooting**: Resolved various issues related to Python module imports, `.env` parsing, database access, Pandas indexing, Pydantic model mapping, and frontend data display.
-- **SETUP & VERSION CONTROL COMPLETE**: The project is now initialized as a Git repository and the full codebase has been pushed to the GitHub repository `claylangi17/Foldering` on the `main` branch.
+    - ETL parameter form.
+    - Layer navigation page (`/layers/[[...slug]]/page.tsx`):
+        - Displays L1/L2 parsed folders and item tables.
+        - Handles hierarchical navigation.
+        - **Export to PDF**: Added button and functionality to export item table to PDF using `jspdf` and `jspdf-autotable`.
+        - **Item Name Search**: Added client-side search input to filter items in the table by Item Name or Item Code.
+        - **Filter by Folder/Month (Client-side)**:
+            - Added search input to filter L1/L2 folder lists by name.
+            - Added Year/Month select dropdowns to filter items by `TGL_PO`.
+            - Corrected TypeScript errors related to `TGL_PO` date handling.
+    - **Authentication & Authorization**:
+        - Login (`/login`) and Register (`/register`) pages.
+        - `AuthContext` for global state management (token, user, isAuthenticated, isLoading).
+        - Protected route layout (`/(dashboard_layout)/layout.tsx`) redirecting to login if not authenticated.
+        - Header in dashboard layout displaying user info (username, role).
+    - **Checklist SPV Feature**:
+        - `item-columns.tsx` modified to make "Checklist" editable only for 'spv' role. Added editable "Keterangan" field for SPV users with debounce logic.
+        - `ChecklistCell` component uses `useAuth` and calls `updatePOChecklist` API.
+        - `api.ts` includes `registerUser`, `loginUser`, `fetchCurrentUser`, `updatePOChecklist`, `updatePOKeterangan`, and `fetchMiniDashboardData`.
+    - **Cumulative per Item Feature**:
+        - `api.ts` updated for new cumulative fields in `FrontendItemInLayer`.
+        - `item-columns.tsx` includes columns for "Cum. QTY" and "Cum. Amount (IDR)".
+    - **Mini Dashboard**:
+        - Created `mini-dashboard.tsx` component to display key metrics.
+        - Integrated `MiniDashboard` into `/(dashboard_layout)/page.tsx`.
+        - Added `separator` component via Shadcn CLI and fixed `EtlParameterForm` import.
+- **Database (MySQL - `foldering_ai`)**: Schemas for `purchase_orders`, `layer_definitions`, `item_classifications`, and `users` are in place.
+- **SETUP & VERSION CONTROL COMPLETE**: Project on GitHub `claylangi17/Foldering`.
 
-## 2. What's Left to Build (High-Level - based on original brief, adapted for parsing)
-- **Further Refinement of Parsing Rules (Iterative)**: While initial refinements (INK, TONER, dimensional) are complete, the parsing logic will likely need ongoing refinement based on more diverse item descriptions to improve accuracy and reduce "UNCATEGORIZED" items.
+## 2. What's Left to Build (High-Level)
+- **Checklist SPV - Final Touches**:
+    - Role management UI (currently manual DB edit).
+    - More robust error handling and UI feedback for checklist updates.
+    - Data refresh strategy after checklist update.
+- **Further Refinement of Parsing Rules (Iterative)**.
 - **Frontend Features (Review/Implement)**:
-    - **Item Name Search**: Functionality needs to be reviewed. Search could target L1/L2 folder names or item descriptions within the PO table.
-    - **Filter by Folder/Month**: Filtering capabilities for the displayed PO item lists.
-    - **Export to Excel/CSV**: For PO data tables.
-    - **Editable `Checklist` and `Keterangan`**: Requires backend endpoints to update these fields in `purchase_orders` and UI components for editing.
-    - **Mini Dashboard**: Displaying total POs, total amount, category count, etc.
-- **User Interface/User Experience (UI/UX) Enhancements**:
-    - Display actual folder names in breadcrumbs instead of "Node XXX".
-    - Improve display of L1/L2 folder names if they become too long.
-    - Consider UI for managing/suggesting parsing rules if desired.
-- **Cumulative Calculations within Folders**: The request "kumulatif QTY/IDR (berdasarkan komulatif dalam folder layer 2)" implies that cumulative sums might need to be calculated dynamically when viewing items within an L2 folder, or pre-calculated specifically for each L2 group. Current cumulative sums are across all data loaded by ETL. This needs clarification.
+    - Consider backend enhancements for "Filter by Month" if client-side is insufficient.
+- **UI/UX Enhancements**: Breadcrumbs with actual names, long name handling.
+- **Cumulative Calculations within Folders**: Clarify if needed beyond current implementation.
 
 ## 3. Current Status
-- **Refinement & Testing Phase**: The core 2-level parsing-based folder generation and display system is functional with initial rule refinements.
-- **Ready for User Testing (with Refined Rules)**: The system is ready for the user to test the ETL, folder generation (using the updated parsing rules), and UI navigation with their actual data.
-- **Awaiting Feedback for Further Parsing Refinement**: Continued improvements to parsing accuracy will depend on user feedback and more examples of item descriptions.
+- **"Mini Dashboard" feature implemented.** Awaiting testing.
+- **"Editable Keterangan" feature implemented.** SPV users can now edit the Keterangan field. Awaiting testing.
+- **"Filter by Folder/Month" feature (Phase 1 - Client-side) implemented.** This includes folder name search and item date filtering. Awaiting testing.
+- **"Item Name Search" feature implemented** (client-side). Awaiting testing.
+- **"Export PDF" feature implemented** (client-side). PDF export now considers the filtered items from the search. Awaiting testing.
+- **"Cumulative per Item" feature completed.**
+- **"Checklist SPV" feature backend and frontend foundations are in place.** Next steps involve UI for role management and enhancing robustness.
+- Core parsing-based folder system is functional.
 
 ## 4. Known Issues / Blockers (Potential)
 - **SQL Server Connectivity**: ODBC driver and connection parameters must be correctly configured.

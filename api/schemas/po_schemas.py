@@ -58,8 +58,12 @@ class PurchaseOrderBase(BaseModel):
 
     # Calculated/added fields (ensure these names are used consistently if they are part of the table)
     Sum_of_Order_Amount_IDR: Optional[float] = None
+    # Global cumulative from ETL
     Total_Cumulative_QTY_Order: Optional[float] = None
+    # Global cumulative from ETL
     Total_Cumulative_IDR_Amount: Optional[float] = None
+    Cumulative_Item_QTY: Optional[float] = None  # Per-item cumulative
+    Cumulative_Item_Amount_IDR: Optional[float] = None  # Per-item cumulative
     Checklist: Optional[bool] = False  # Default is False in ETL
     Keterangan: Optional[str] = ""  # Default is '' in ETL
 

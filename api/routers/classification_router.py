@@ -1,8 +1,10 @@
-from fastapi import APIRouter, HTTPException, Query, Path  # Added Path
-from typing import List, Optional, Any  # Dict
-from ..schemas.classification_schemas import LayerNode as LayerNodeSchema
-# Assuming FrontendItemInLayer is similar to what PO schema might return for item details
-from ..schemas.po_schemas import PurchaseOrder as ItemDetailSchema
+from fastapi import APIRouter, HTTPException, Query, Path
+from typing import List, Optional, Any
+# Import LayerNode, LayerItemsResponse, and the new LayerHierarchyResponse schemas
+from ..schemas.classification_schemas import LayerNode as LayerNodeSchema, LayerItemsResponse, LayerHierarchyResponse
+# Import the base PO schema used within LayerItemsResponse
+# Alias for PurchaseOrderBase
+from ..schemas.po_schemas import PurchaseOrderBase as ItemDetailSchema
 from ..services import classification_service
 
 router = APIRouter(
@@ -13,15 +15,15 @@ router = APIRouter(
 # Mock data and temporary LayerSchema removed.
 
 
-@router.get("/layers/{slug:path}", response_model=List[LayerNodeSchema])
+@router.get("/layers/{slug:path}", response_model=LayerHierarchyResponse)
 async def get_layers_by_slug(
-    slug: str = Path(..., description="Path representing the layer hierarchy, e.g., 'L1' or 'L1/123/L2' or 'L1/123/L2/456/L3'. '123' and '456' are parent layer_definition primary keys.")
+    slug: str = Path(..., description="Path representing the layer hierarchy, e.g., 'L1' or 'L1/123/L2'. '123' is a parent layer_definition primary key.")
 ):
     """
     Retrieve classification categories based on a hierarchical slug.
-    - For L1: slug = "L1"
-    - For L2 under L1 node with PK 123: slug = "L1/123/L2"
-    - For L3 under L2 node with PK 456 (which is child of L1 node 123): slug = "L1/123/L2/456/L3"
+    Returns the sub-layers and the name of the direct parent layer if applicable.
+    - For L1: slug = "L1" (parent_name will be null)
+    - For L2 under L1 node with PK 123: slug = "L1/123/L2" (parent_name will be name of L1 node 123)
 
     The numeric parts of the slug are the primary keys from the 'layer_definitions' table.
     """
@@ -97,13 +99,14 @@ async def get_layers_by_slug(
     return layer_data
 
 
-@router.get("/item-details-by-layer-definition-pk/{layer_definition_pk}", response_model=List[ItemDetailSchema])
+@router.get("/item-details-by-layer-definition-pk/{layer_definition_pk}", response_model=LayerItemsResponse)
 async def get_item_details_by_layer_definition_pk(
     layer_definition_pk: int = Path(
         ..., description="The primary key (id) of the layer_definition record.")
 ):
     """
-    Retrieve item details (e.g., list of POs) associated with a specific layer_definition primary key.
+    Retrieve item details (e.g., list of POs) associated with a specific 
+    layer_definition primary key, along with the layer's name.
     """
     print(
         f"GET /classification/item-details-by-layer-definition-pk/{layer_definition_pk}")
@@ -112,8 +115,9 @@ async def get_item_details_by_layer_definition_pk(
         raise HTTPException(
             status_code=400, detail="Invalid layer_definition_pk. Must be a positive integer.")
 
-    items = classification_service.fetch_items_for_layer_from_db(
+    # The service function now returns a dict {"layer_name": str, "items": List[Dict]}
+    layer_data_with_items = classification_service.fetch_items_for_layer_from_db(
         layer_definition_pk=layer_definition_pk
     )
-    # Pydantic will validate against ItemDetailSchema (PurchaseOrder schema)
-    return items
+    # FastAPI will validate the returned dict against the LayerItemsResponse model
+    return layer_data_with_items

@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware  # Import CORS Middleware
 from dotenv import load_dotenv
-from .routers import etl_ml_router, po_router, classification_router
+# Import routers
+from .routers import etl_ml_router, po_router, classification_router, auth_router, dashboard_router
 import uvicorn
 import os
 
@@ -40,6 +41,8 @@ async def read_root():
 app.include_router(etl_ml_router.router)
 app.include_router(po_router.router)
 app.include_router(classification_router.router)
+app.include_router(auth_router.router)
+app.include_router(dashboard_router.router)  # Include the dashboard router
 
 if __name__ == "__main__":
     api_host = os.getenv("API_HOST", "0.0.0.0")
