@@ -152,14 +152,24 @@ def save_parsed_item_classifications(classifications_to_save: list):
     VALUES (%(item_po_id)s, %(item_description)s, %(cluster_label)s, %(layer_name)s)
     """
     try:
-        print(
-            f"ML Pipeline: Inserting {len(classifications_to_save)} parsed L2 classifications.")
-        cursor.executemany(insert_query, classifications_to_save)
-        conn.commit()
-        print("ML Pipeline: Parsed L2 classifications saved successfully.")
-    except Exception as e:
-        print(f"ML Pipeline: Error saving parsed L2 classifications: {e}")
-        conn.rollback()
+        batch_size = 500  # Define a suitable batch size
+        total_rows = len(classifications_to_save)
+        
+        if total_rows == 0:
+            print("ML Pipeline: No parsed L2 classifications to save.")
+        else:
+            print(
+                f"ML Pipeline: Inserting {total_rows} parsed L2 classifications in batches of {batch_size}.")
+            try:
+                for i in range(0, total_rows, batch_size):
+                    batch_data = classifications_to_save[i:i + batch_size]
+                    cursor.executemany(insert_query, batch_data)
+                    conn.commit()  # Commit after each successful batch
+                    print(f"ML Pipeline: Saved batch {i // batch_size + 1}/{(total_rows + batch_size - 1) // batch_size} ({len(batch_data)} rows)")
+                print("ML Pipeline: All parsed L2 classifications saved successfully.")
+            except Exception as e:
+                print(f"ML Pipeline: Error saving parsed L2 classifications batch: {e}")
+                conn.rollback()  # Rollback if any batch fails
     finally:
         cursor.close()
         conn.close()

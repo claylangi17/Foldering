@@ -2,6 +2,7 @@
 "use client"; // Make this a Client Component to use hooks
 
 import React, { useEffect } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { Skeleton } from '@/components/ui/skeleton'; // For loading state
@@ -28,7 +29,7 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { isAuthenticated, isLoading, user } = useAuth();
+  const { user, isAuthenticated, isLoading, logout } = useAuth(); // Removed unused 'login'
   const router = useRouter();
 
   useEffect(() => {
@@ -47,17 +48,35 @@ export default function DashboardLayout({
     return null;
   }
 
+  const handleLogout = async () => {
+    if (logout) {
+      await logout(); // Call the logout function from useAuth
+    }
+    // Additional local cleanup if necessary, e.g., localStorage.removeItem('token');
+    router.push('/login'); // Redirect to login page
+  };
+
   // TODO: Add a proper sidebar and header for dashboard navigation
   return (
     <div className="flex min-h-screen flex-col">
       <header className="bg-primary text-primary-foreground p-4 shadow sticky top-0 z-50">
         <div className="container mx-auto flex justify-between items-center">
-          <h1 className="text-xl font-semibold">Foldering AI Dashboard</h1>
-          {user && (
-            <div className='text-sm'>
-              Logged in as: <strong>{user.username}</strong> (Role: {user.role})
-            </div>
-          )}
+          <Link href="/" className="text-xl font-semibold">
+            <h1>Foldering AI Dashboard</h1>
+          </Link>
+          <div className="flex items-center space-x-4">
+            {user && (
+              <div className='text-sm'>
+                Logged in as: <strong>{user.username}</strong> (Role: {user.role})
+              </div>
+            )}
+            <button
+              onClick={handleLogout}
+              className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded text-sm"
+            >
+              Log out
+            </button>
+          </div>
         </div>
       </header>
 
