@@ -2,10 +2,11 @@
 from api.db.database import get_mysql_connection
 import os
 import pandas as pd
-import pyodbc
+import requests  # Added for API calls
 from dotenv import load_dotenv
 from datetime import datetime
 import sys  # Added for sys.path modification
+import mysql.connector # For database error handling and operations
 
 # Load environment variables from .env file
 load_dotenv()
@@ -17,156 +18,66 @@ project_root_etl = os.path.dirname(current_dir_etl)
 sys.path.append(project_root_etl)
 
 
-# Get SQL Server connection details from environment variables
-SQL_SERVER_DSN_NAME = os.getenv("SQL_SERVER_DSN_NAME")
-SQL_SERVER_DRIVER = os.getenv("SQL_SERVER_DRIVER")
-SQL_SERVER_HOST = os.getenv("SQL_SERVER_HOST")
-SQL_SERVER_DATABASE = os.getenv("SQL_SERVER_DATABASE")
-SQL_SERVER_USER = os.getenv("SQL_SERVER_USER")
-SQL_SERVER_PASSWORD = os.getenv("SQL_SERVER_PASSWORD")
-SQL_SERVER_TRUSTED_CONNECTION = os.getenv(
-    "SQL_SERVER_TRUSTED_CONNECTION", "no")  # Default to no if not set
-
-# MySQL details are now handled by api.db.database
-
-
-def get_sql_server_connection():
-    """Establishes a connection to the SQL Server database, prioritizing DSN if provided."""
-    conn_parts = []
-    if SQL_SERVER_DSN_NAME:
-        conn_parts.append(f"DSN={SQL_SERVER_DSN_NAME}")
-        # UID and PWD can be part of DSN or specified additionally
-        if SQL_SERVER_USER:
-            conn_parts.append(f"UID={SQL_SERVER_USER}")
-        if SQL_SERVER_PASSWORD:
-            conn_parts.append(f"PWD={SQL_SERVER_PASSWORD}")
-    else:
-        if not SQL_SERVER_DRIVER or not SQL_SERVER_HOST or not SQL_SERVER_DATABASE:
-            print("Error: SQL Server DSN not provided, and DRIVER, HOST, or DATABASE is missing for manual connection string.")
-            return None
-        conn_parts.append(f"DRIVER={SQL_SERVER_DRIVER}")
-        conn_parts.append(f"SERVER={SQL_SERVER_HOST}")
-        conn_parts.append(f"DATABASE={SQL_SERVER_DATABASE}")
-        if SQL_SERVER_USER:  # Only add UID/PWD if not relying solely on Trusted_Connection with DSN-less
-            conn_parts.append(f"UID={SQL_SERVER_USER}")
-        if SQL_SERVER_PASSWORD:
-            conn_parts.append(f"PWD={SQL_SERVER_PASSWORD}")
-
-    if SQL_SERVER_TRUSTED_CONNECTION.lower() == "yes":
-        conn_parts.append("Trusted_Connection=yes")
-
-    # Always add TrustServerCertificate for flexibility in dev environments
-    conn_parts.append("TrustServerCertificate=yes")
-
-    conn_str = ";".join(conn_parts)
-
-    # Be careful logging PWD in real prod
-    print(f"Attempting SQL Server connection with: {conn_str}")
-    try:
-        conn = pyodbc.connect(conn_str)
-        print("Successfully connected to SQL Server.")
-        return conn
-    except pyodbc.Error as ex:
-        sqlstate = ex.args[0]
-        print(f"Error connecting to SQL Server: {sqlstate}")
-        # Consider more specific error handling here
-        if '08001' in sqlstate:  # Client unable to establish connection
-            print("Network-related error or server not reachable.")
-        elif '28000' in sqlstate:  # Invalid authorization specification
-            print("Invalid credentials.")
-        # Syntax error or access violation (often db not found)
-        elif '42000' in sqlstate:
-            print(
-                f"Database '{SQL_SERVER_DATABASE}' not found or access denied.")
-        else:
-            print(f"Unhandled pyodbc error: {ex}")
-        return None
-
 # Removed get_mysql_connection() from here, as it's now imported.
 
+API_BASE_URL = "http://management.sansico.com:8080/Clai/PurchaseOrder/"
 
-def fetch_data_from_sql_server(conn_sql, company_id, from_month, from_year, to_month, to_year, from_item_code, to_item_code):
-    """Fetches data from SQL Server using the PO_ListProd stored procedure."""
-    if conn_sql is None:
-        return None
-
-    query = f"""
-        EXEC PO_ListProd 
-            @CompanyID='{{company_id}}', 
-            @FromMonth='{{from_month}}', 
-            @FromYear='{{from_year}}', 
-            @ToMonth='{{to_month}}', 
-            @ToYear='{{to_year}}', 
-            @FromItemCode='{{from_item_code}}', 
-            @ToItemCode='{{to_item_code}}'
-    """
-    # It's generally safer to pass parameters to pyodbc's execute method
-    # rather than f-string formatting directly into SQL,
-    # but for stored procedures, this direct call is common.
-    # Ensure parameters are validated/sanitized if they come from untrusted sources.
-
-    # For pyodbc, parameters for stored procedures are typically passed as a tuple to execute
-    # Example: cursor.execute("{CALL PO_ListProd(?,?,?,?,?,?,?)}", company_id, from_month, ...)
-    # However, the user provided EXEC syntax, so I'll try to match that pattern,
-    # but it's worth noting the more standard parameterized query approach.
-    # Using parameterized queries for stored procedures is safer and often more performant.
-
-    # Parameters for the stored procedure
-    params = (
-        company_id,
-        # Ensure these are passed as appropriate types (e.g., int or str)
-        from_month,
-        # based on what the SP expects. VBA code passes them as strings.
-        from_year,
-        to_month,
-        to_year,
-        from_item_code,
-        to_item_code
-    )
-
-    # The SQL command to execute the stored procedure with placeholders
-    # Note: pyodbc uses '?' as placeholders.
-    sql_command = "{CALL PO_ListProd (?, ?, ?, ?, ?, ?, ?)}"
-
-    print(
-        f"Executing SQL Server Stored Procedure: PO_ListProd with parameters: {params}")
-
+def fetch_data_from_api(company_id, from_month, from_year, to_month, to_year, from_item_code, to_item_code):
+    """Fetches data from the PHP API and returns a Pandas DataFrame."""
+    params = {
+        'CompanyID': company_id,
+        'FromMonth': from_month,
+        'FromYear': from_year,
+        'ToMonth': to_month,
+        'ToYear': to_year,
+        'FromItemCode': from_item_code,
+        'ToItemCode': to_item_code
+    }
+    print(f"Fetching data from API: {API_BASE_URL} with params: {params}")
     try:
-        # It's generally better to use a cursor for executing SPs that might not return results
-        # or to handle output parameters, etc.
-        # However, if PO_ListProd is guaranteed to return a single result set, read_sql_query can work.
-        # For robustness, let's use a cursor.
-        cursor = conn_sql.cursor()
-        cursor.execute(sql_command, params)
+        response = requests.get(API_BASE_URL, params=params, timeout=120) # Increased timeout to 120 seconds
+        response.raise_for_status()  # Raises an HTTPError for bad responses (4XX or 5XX)
+        
+        json_response = response.json()
+        data_list = json_response.get('data')
 
-        # Check if the cursor has results (some SPs might not return rows)
-        if cursor.description is None:
-            print("Stored procedure executed but did not return a result set.")
-            df = pd.DataFrame()  # Return empty DataFrame
-        else:
-            rows = cursor.fetchall()
-            # Get column names from cursor.description
-            columns = [column[0] for column in cursor.description]
-            df = pd.DataFrame.from_records(rows, columns=columns)
+        if data_list is None:
+            # This handles cases where 'data' key is missing or is null (e.g., empty response from PHP script)
+            print("API response did not contain a 'data' field or it was null. Returning empty DataFrame.")
+            return pd.DataFrame()
+        if not isinstance(data_list, list):
+            print(f"API response 'data' field is not a list. Type: {type(data_list)}. Returning empty DataFrame.")
+            return pd.DataFrame()
+        if not data_list: # Handles empty list case
+            print("API returned an empty list in the 'data' field. Returning empty DataFrame.")
+            return pd.DataFrame()
 
-        # df = pd.read_sql_query(sql_command, conn_sql, params=params) # Alternative if SP always returns result set
-        print(f"Successfully fetched {len(df)} rows from SQL Server.")
+        df = pd.DataFrame(data_list)
+        # Standardize column names if necessary, e.g. API uses 'PO_NO' vs 'PO_No'
+        # The PHP script uses: PO_NO, TGL_PO, ITEM, ITEM_DESC, QTY_ORDER, UNIT, Original_PRICE, 
+        # Currency, Order_Amount_IDR, Supplier_Name, PR_No, PR_Date, PR_Ref_A, PR_Ref_B, 
+        # Term_Payment_at_PO, RECEIVED_DATE, PO_Status
+        # These seem consistent enough for now.
+        print(f"Successfully fetched {len(df)} rows from API.")
         return df
-    except pd.io.sql.DatabaseError as e:
-        print(f"Pandas SQL DatabaseError: {e}")
-        # This can happen if the stored procedure doesn't return a result set
-        # or if there's an issue with the query execution recognized by pandas
-        if "No results.  Previous SQL was not a query." in str(e) or "The EXECUTE statement did not produce a result set." in str(e):
-            print(
-                "The stored procedure did not return a result set that pandas could read directly.")
-            print("This might be normal if the SP performs actions without a SELECT, or an error occurred within the SP.")
-        return None
-    except pyodbc.Error as e:
-        print(f"Error executing stored procedure: {e}")
-        return None
-    except Exception as e:
-        print(f"An unexpected error occurred during data fetching: {e}")
-        return None
+    except requests.exceptions.HTTPError as http_err:
+        print(f"HTTP error occurred: {http_err} - Status Code: {response.status_code}")
+        print(f"Response content: {response.text}")
+        return pd.DataFrame() # Return empty DataFrame on HTTP error
+    except requests.exceptions.ConnectionError as conn_err:
+        print(f"Connection error occurred: {conn_err}")
+        return pd.DataFrame()
+    except requests.exceptions.Timeout as timeout_err:
+        print(f"Timeout error occurred: {timeout_err}")
+        return pd.DataFrame()
+    except requests.exceptions.RequestException as req_err:
+        print(f"An error occurred during API request: {req_err}")
+        return pd.DataFrame()
+    except ValueError as json_err: # Includes JSONDecodeError
+        print(f"Error decoding JSON from API response: {json_err}")
+        print(f"Response content: {response.text if 'response' in locals() else 'Response object not available'}")
+        return pd.DataFrame()
+
 
 
 def transform_data(df):
@@ -183,21 +94,41 @@ def transform_data(df):
     # If not, these will need to be mapped from the actual SP output column names.
 
     # Placeholder: User needs to confirm actual column names from PO_ListProd output
-    # For now, I'll assume they are 'QTY_ORDER' and 'IDR_PRICE'.
-    # And 'TGL_PO' for date sorting.
+    # API provides: 'QTY_ORDER', 'Original_PRICE', 'Order_Amount_IDR', 'TGL_PO'.
 
-    qty_col = 'QTY_ORDER'  # Replace with actual QTY column name from SP if different
-    price_col = 'IDR_PRICE'  # Replace with actual Price column name from SP if different
-    date_col = 'TGL_PO'  # Replace with actual PO Date column name from SP if different
+    qty_col = 'QTY_ORDER'
+    # 'Original_PRICE' from API is the unit price.
+    price_col = 'Original_PRICE' 
+    date_col = 'TGL_PO' # This is consistent with API output 'TGL_PO'.
+    api_total_amount_col = 'Order_Amount_IDR' # API's pre-calculated total amount in IDR
 
-    if qty_col not in df.columns or price_col not in df.columns:
-        print(
-            f"Error: Required columns '{qty_col}' or '{price_col}' not found in DataFrame for 'Sum of Order Amount IDR'.")
-        # Decide how to handle: return df, or add empty columns, or raise error
-    else:
+    # Ensure QTY_ORDER is numeric
+    if qty_col in df.columns:
         df[qty_col] = pd.to_numeric(df[qty_col], errors='coerce')
+    else:
+        print(f"Warning: Column '{qty_col}' not found in DataFrame.")
+
+    # Ensure Original_PRICE is numeric (if it exists and is needed for other calculations)
+    if price_col in df.columns:
         df[price_col] = pd.to_numeric(df[price_col], errors='coerce')
+    # else: # Not critical if we use Order_Amount_IDR primarily
+        # print(f"Warning: Column '{price_col}' (unit price) not found in DataFrame.")
+
+    # Use 'Order_Amount_IDR' from API if available, otherwise calculate it.
+    # The target column name in the script is 'Sum_of_Order_Amount_IDR'.
+    if api_total_amount_col in df.columns:
+        df['Sum_of_Order_Amount_IDR'] = pd.to_numeric(df[api_total_amount_col], errors='coerce')
+        print(f"Using '{api_total_amount_col}' from API for 'Sum_of_Order_Amount_IDR'.")
+    elif qty_col in df.columns and price_col in df.columns:
+        # Fallback to calculation if Order_Amount_IDR is not present
+        print(f"'{api_total_amount_col}' not found. Calculating 'Sum_of_Order_Amount_IDR' from '{qty_col}' and '{price_col}'.")
         df['Sum_of_Order_Amount_IDR'] = df[qty_col] * df[price_col]
+    else:
+        print(
+            f"Error: Cannot determine 'Sum_of_Order_Amount_IDR'. Missing '{api_total_amount_col}' or ('{qty_col}' and '{price_col}').")
+        # Create an empty column or handle error appropriately
+        df['Sum_of_Order_Amount_IDR'] = pd.NA
+
 
     if date_col not in df.columns:
         print(
@@ -282,103 +213,132 @@ def create_table_in_mysql(conn_mysql, table_name, df):
         cursor.close()
 
 
-def load_data_to_mysql(conn_mysql, table_name, df):
-    """Loads data from DataFrame to MySQL table."""
+def load_data_to_mysql(conn_mysql, table_name, df, batch_size=500):
+    """Loads data from DataFrame to MySQL table in batches."""
     if conn_mysql is None or df is None or df.empty:
         print("No data to load or no MySQL connection.")
         return False
 
     cursor = conn_mysql.cursor()
 
-    # Ensure DataFrame column names match the sanitized names used for table creation
-    # Or, better, use a library like SQLAlchemy which handles this more gracefully.
-    # For now, assume df.columns are already safe or map them.
-    # For simplicity, this example assumes direct mapping.
+    # Sanitize column names in DataFrame to match table schema
+    # This ensures consistency with how columns were defined in `create_table_in_mysql`
+    original_to_sanitized_map = {
+        col_name: "".join(c if c.isalnum() else "_" for c in col_name)
+        for col_name in df.columns
+    }
+    df_renamed = df.rename(columns=original_to_sanitized_map)
+    
+    actually_renamed_cols = {
+        orig: new_name for orig, new_name in original_to_sanitized_map.items() if orig != new_name
+    }
+    if actually_renamed_cols:
+        print(f"DataFrame columns renamed for SQL compatibility: {actually_renamed_cols}")
+    
+    # Replace pandas types like NaT, and numpy.nan with Python's None for SQL compatibility
+    df_cleaned = df_renamed.where(pd.notnull(df_renamed), None)
 
-    # Renaming columns in DataFrame to match sanitized names if they were changed
-    sanitized_columns = {}
-    for col_name in df.columns:
-        safe_col_name = "".join(c if c.isalnum() else "_" for c in col_name)
-        if safe_col_name != col_name:
-            sanitized_columns[col_name] = safe_col_name
-
-    if sanitized_columns:
-        df_renamed = df.rename(columns=sanitized_columns)
-        print(
-            f"DataFrame columns renamed for SQL compatibility: {sanitized_columns}")
-    else:
-        df_renamed = df
-
-    cols = ", ".join([f"`{col}`" for col in df_renamed.columns])
-    placeholders = ", ".join(["%s"] * len(df_renamed.columns))
+    cols = ", ".join([f"`{col}`" for col in df_cleaned.columns])
+    placeholders = ", ".join(["%s"] * len(df_cleaned.columns))
     insert_query = f"INSERT INTO {table_name} ({cols}) VALUES ({placeholders})"
 
-    print(f"Loading data into MySQL table '{table_name}'...")
+    print(f"Loading data into MySQL table '{table_name}' in batches of {batch_size}...")
+    
+    data_tuples = [tuple(row) for row in df_cleaned.to_numpy()]
+    
+    total_rows = len(data_tuples)
+    loaded_rows = 0
+
     try:
-        data_tuples = [tuple(row) for row in df_renamed.to_numpy()]
-        cursor.executemany(insert_query, data_tuples)
+        for i in range(0, total_rows, batch_size):
+            batch_data = data_tuples[i:i + batch_size]
+            if not batch_data:
+                continue
+            
+            cursor.executemany(insert_query, batch_data)
+            loaded_rows += len(batch_data)
+
         conn_mysql.commit()
-        print(
-            f"Successfully loaded {len(data_tuples)} rows into {table_name}.")
+        print(f"Successfully loaded {loaded_rows} of {total_rows} rows into {table_name}.")
         return True
-    except mysql.connector.Error as err:
-        print(f"Error loading data into {table_name}: {err}")
-        conn_mysql.rollback()  # Rollback on error
+    except mysql.connector.Error as err: # This will now work after the import is added
+        print(f"MySQL Connector Error during data loading into {table_name}: {err}")
+        try:
+            conn_mysql.rollback()
+            print("Transaction rolled back.")
+        except Exception as rb_err:
+            print(f"Error during rollback: {rb_err}")
         return False
-    except mysql.connector.Error as err_mysql_specific:  # Catch specific mysql connector errors
-        print(
-            f"MySQL Connector Error during data loading into {table_name}: {err_mysql_specific}")
-        conn_mysql.rollback()
-        return False
-    except Exception as e:  # Catch any other exceptions
-        print(
-            f"An unexpected error occurred during data loading into {table_name}: {e}")
-        conn_mysql.rollback()
+    except Exception as e:
+        print(f"An unexpected error occurred during data loading into {table_name}: {e}")
+        try:
+            conn_mysql.rollback()
+            print("Transaction rolled back due to unexpected error.")
+        except Exception as rb_err:
+            print(f"Error during rollback: {rb_err}")
         return False
     finally:
         cursor.close()
 
 
+def trigger_ml_training():
+    """Triggers the ML model training API endpoint."""
+    ml_training_url = "http://127.0.0.1:8000/process/train-ml-model"
+    try:
+        response = requests.post(ml_training_url) # Using POST as it's a process trigger
+        response.raise_for_status()  # Raises an HTTPError for bad responses (4XX or 5XX)
+        print(f"Successfully triggered ML model training. Status: {response.status_code}")
+        print(f"ML Training API Response: {response.json()}") # Assuming API returns JSON
+    except requests.exceptions.RequestException as e:
+        print(f"Error triggering ML model training: {e}")
+    except Exception as e:
+        print(f"An unexpected error occurred while triggering ML model training: {e}")
+
 def main_etl_process(company_id, from_month, from_year, to_month, to_year, from_item_code, to_item_code):
     """Main ETL process."""
     print("Starting ETL process...")
 
-    conn_sql = get_sql_server_connection()
+    # Parameters for the ETL process
+    # These can be dynamically set, e.g., from command-line arguments, a config file, or another system.
+    COMPANY_ID = os.getenv('ETL_COMPANY_ID', company_id)
+    FROM_MONTH = os.getenv('ETL_FROM_MONTH', from_month)
+    FROM_YEAR = os.getenv('ETL_FROM_YEAR', from_year)
+    TO_MONTH = os.getenv('ETL_TO_MONTH', to_month)
+    TO_YEAR = os.getenv('ETL_TO_YEAR', to_year)
+    FROM_ITEM_CODE = os.getenv('ETL_FROM_ITEM_CODE', from_item_code)
+    TO_ITEM_CODE = os.getenv('ETL_TO_ITEM_CODE', to_item_code)
+
+    print(f"Running ETL for Company: {COMPANY_ID}, Period: {FROM_MONTH}/{FROM_YEAR} to {TO_MONTH}/{TO_YEAR}, Items: {FROM_ITEM_CODE} to {TO_ITEM_CODE}")
+
     conn_mysql = get_mysql_connection()
 
-    if not conn_sql or not conn_mysql:
+    if not conn_mysql:
         print("ETL process aborted due to connection failure.")
-        if conn_sql:
-            conn_sql.close()
         if conn_mysql:
             conn_mysql.close()
         return
 
-    raw_df = fetch_data_from_sql_server(
-        conn_sql, company_id, from_month, from_year,
-        to_month, to_year, from_item_code, to_item_code
-    )
+    # 1. Extract data from API (New method)
+    df_raw = fetch_data_from_api(company_id, from_month, from_year,
+                                 to_month, to_year, from_item_code, to_item_code)
 
-    if raw_df is None or raw_df.empty:
-        print("No data fetched from SQL Server. ETL process cannot continue.")
-        conn_sql.close()
-        conn_mysql.close()
+    if df_raw is None or df_raw.empty:
+        print("No data extracted from API. Aborting ETL process.")
         return
 
-    # Before transforming, it's crucial to know the actual column names from PO_ListProd
+    # Before transforming, it's crucial to know the actual column names from API
     # The user needs to provide these. For now, the transform_data function has placeholders.
-    print("\n--- Column Names from SQL Server ---")
-    print(raw_df.columns.tolist())
+    print("\n--- Column Names from API ---")
+    print(df_raw.columns.tolist())
     print("-------------------------------------\n")
     print("IMPORTANT: Please verify the column names above and ensure they match the expectations in 'transform_data' function (qty_col, price_col, date_col).")
 
     # Use .copy() to avoid SettingWithCopyWarning
-    transformed_df = transform_data(raw_df.copy())
+    transformed_df = transform_data(df_raw.copy())
 
     if transformed_df is None or transformed_df.empty:
         print("Data transformation failed or resulted in empty DataFrame. ETL process cannot continue.")
-        conn_sql.close()
-        conn_mysql.close()
+        if conn_mysql: conn_mysql.close()
         return
 
     mysql_table_name = "purchase_orders"
@@ -390,8 +350,7 @@ def main_etl_process(company_id, from_month, from_year, to_month, to_year, from_
     if not table_created:
         print(
             f"Failed to create table '{mysql_table_name}'. ETL process aborted.")
-        conn_sql.close()
-        conn_mysql.close()
+        if conn_mysql: conn_mysql.close()
         return
 
     # Load data
@@ -400,13 +359,14 @@ def main_etl_process(company_id, from_month, from_year, to_month, to_year, from_
 
     if load_success:
         print("ETL process completed successfully.")
+        print("Attempting to trigger ML model training...")
+        trigger_ml_training()
     else:
-        print("ETL process completed with errors during data loading.")
+        print("ETL process completed with errors during data loading. ML training will not be triggered.")
 
-    # Close connections
-    conn_sql.close()
-    conn_mysql.close()
-    print("Database connections closed.")
+    # Close MySQL connection
+    if conn_mysql: conn_mysql.close()
+    print("MySQL database connection closed.")
 
 
 if __name__ == "__main__":
@@ -414,18 +374,26 @@ if __name__ == "__main__":
     # These parameters would typically come from an API call or configuration
     print("Running ETL script directly for testing...")
 
-    # Dummy parameters for testing - replace with actuals or get from config/args
-    test_company_id = "DummyCompany"
-    test_from_month = "1"
-    test_from_year = "2023"
-    test_to_month = "12"
-    test_to_year = "2023"
-    test_from_item_code = "ITEM001"
-    test_to_item_code = "ITEM999"
+    # Parameters for testing, using the API example values you provided as defaults.
+    # These can be overridden by setting environment variables like ETL_COMPANY_ID, ETL_FROM_MONTH, etc.
+    test_company_id = "180"
+    test_from_month = "01"
+    test_from_year = "2025"
+    test_to_month = "01"
+    test_to_year = "2025"
+    test_from_item_code = "B"
+    test_to_item_code = "ZZZZZZ"
 
-    # Before running, ensure .env file is populated with correct DB credentials
-    # and that the PO_ListProd stored procedure exists and is accessible.
+    print(f"--- Running ETL Script with Test Parameters ---")
+    print(f"Company ID: {test_company_id}")
+    print(f"From: {test_from_month}/{test_from_year}, Item: {test_from_item_code}")
+    print(f"To:   {test_to_month}/{test_to_year}, Item: {test_to_item_code}")
+    print(f"Note: These parameters can be overridden by ETL_... environment variables.")
+    print(f"Ensure your .env file has MySQL credentials (MYSQL_HOST, MYSQL_USER, etc.)")
+    print(f"-----------------------------------------------")
 
+    # Before running, ensure .env file is populated with correct MySQL DB credentials.
+    # To run the ETL process for testing, uncomment the main_etl_process call below:
     # main_etl_process(
     #     test_company_id,
     #     test_from_month,

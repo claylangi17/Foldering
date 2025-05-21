@@ -190,6 +190,7 @@ def fetch_items_for_layer_from_db(layer_definition_pk: int) -> Dict[str, Any]:
             po.Total_Cumulative_IDR_Amount, -- This is global cumulative, not per item
             po.Checklist,
             po.Keterangan,
+            po.PO_Status, -- Added PO_Status
             SUM(po.QTY_ORDER) OVER (PARTITION BY po.ITEM ORDER BY po.TGL_PO ASC, po.id ASC ROWS UNBOUNDED PRECEDING) AS Cumulative_Item_QTY,
             SUM(po.Sum_of_Order_Amount_IDR) OVER (PARTITION BY po.ITEM ORDER BY po.TGL_PO ASC, po.id ASC ROWS UNBOUNDED PRECEDING) AS Cumulative_Item_Amount_IDR
         FROM purchase_orders po
@@ -205,6 +206,12 @@ def fetch_items_for_layer_from_db(layer_definition_pk: int) -> Dict[str, Any]:
             f"ClassificationService: Executing query for items: {query_items} with params: {params_items}")
         cursor.execute(query_items, params_items)
         raw_items = cursor.fetchall()
+
+        # DEBUG: Print raw items from DB
+        print("\n--- DEBUG: Raw items from DB (first 2) ---")
+        for i, raw_item_debug in enumerate(raw_items[:2]): # Print first 2 items for brevity
+            print(f"Item {i+1}: {raw_item_debug}")
+        print("--- END DEBUG ---\n")
 
         for row in raw_items:
             # Map to the Pydantic model (PurchaseOrder / PurchaseOrderBase) fields
@@ -235,7 +242,8 @@ def fetch_items_for_layer_from_db(layer_definition_pk: int) -> Dict[str, Any]:
                 # Add new per-item cumulative
                 "Cumulative_Item_Amount_IDR": row.get("Cumulative_Item_Amount_IDR"),
                 "Checklist": bool(row.get("Checklist")) if row.get("Checklist") is not None else None,
-                "Keterangan": str(row.get("Keterangan") or "")
+                "Keterangan": str(row.get("Keterangan") or ""),
+                "PO_Status": row.get("PO_Status")
             })
         print(
             f"ClassificationService: Fetched {len(items)} items for layer definition PK '{layer_definition_pk}' (layer_name: '{target_layer_name_db}', cluster: '{target_cluster_label_id}').")

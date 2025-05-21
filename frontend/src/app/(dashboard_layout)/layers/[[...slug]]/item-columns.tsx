@@ -175,6 +175,15 @@ export const getItemColumns = (currentUserRole: string | undefined): ColumnDef<F
             },
         },
         {
+            accessorKey: "PO_Status",
+            header: ({ column }) => (
+                <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+                    PO Status <ArrowUpDown className="ml-2 h-4 w-4" />
+                </Button>
+            ),
+            cell: ({ row }) => <div className="capitalize">{row.getValue("PO_Status") || "-"}</div>,
+        },
+        {
             accessorKey: "ITEM",
             header: "Item Code",
             cell: ({ row }) => row.getValue("ITEM") || "-",
