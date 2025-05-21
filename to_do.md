@@ -9,8 +9,8 @@ bisakah kamu buat karna run etl untuk narik dari dari database sql lalu di pinda
 
 6. Tambahkan start date end date pada date range  
 7. Search parameter tambahkan di tiap folder, untuk search pakai dropdown. (ajak diskusi team purchasing untuk tanya kebutuhan parameter searchnya apa apa aja)
-8. Diskusi bersama Pak Stefanus apakah bisa dapat full apinya agar bisa lihat semua akses datanya yang diperlukan di project ini 
+8. Diskusi bersama Pak Stefanus apakah bisa dapat full apinya agar bisa lihat semua akses datanya yang diperlukan di project ini (done dapat api)
 9. Buat etlnya handle tidak duplicate dan bisa handle update data (bisa tanya pak stefanus untuk tahu column last modified data)
 10. search key PO number, PR number, item desc, nama supplier, total quantity, amount, unit price, check list sama keterangan 
-11. perbaiki ETL biar bisa etl 2 bulan +
+11. perbaiki ETL biar bisa etl 2 bulan + (done)
 12. tarik PO Status untuk proses update internal mysql (yang close tidak perlu diupdate dari get data)
