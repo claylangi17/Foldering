@@ -62,7 +62,7 @@ export default function DashboardLayout({
       <header className="bg-primary text-primary-foreground p-4 shadow sticky top-0 z-50">
         <div className="container mx-auto flex justify-between items-center">
           <Link href="/" className="text-xl font-semibold">
-            <h1>Foldering AI Dashboard</h1>
+            <h1>Foldering AI</h1>
           </Link>
           <div className="flex items-center space-x-4">
             {user && (
