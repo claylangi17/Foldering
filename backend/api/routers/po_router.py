@@ -9,7 +9,7 @@ from ..schemas import user_schemas  # For UserInDB type hint
 # Assuming PurchaseOrderList is also defined in po_schemas for a paginated response
 # from ..schemas.po_schemas import PurchaseOrderList
 from ..services import po_service
-from ..core.dependencies import get_current_active_spv_user  # Import SPV dependency
+from ..core.dependencies import get_current_active_spv_user, get_current_active_user  # Import dependencies
 
 router = APIRouter(
     prefix="/purchase-orders",
@@ -31,18 +31,20 @@ async def get_all_purchase_orders(
     layer_filter: Optional[str] = Query(
         None, description="Filter by classification layer (e.g., L1_ClusterX)"),
     month_filter: Optional[int] = Query(
-        None, ge=1, le=12, description="Filter by month (1-12)")
+        None, ge=1, le=12, description="Filter by month (1-12)"),
+    current_user: user_schemas.UserInDB = Depends(get_current_active_user)  # Require authentication
 ):
     """
     Retrieve a list of purchase orders with optional pagination, search, and filters.
     """
     print(
-        f"GET /purchase-orders: skip={skip}, limit={limit}, search='{search}', layer='{layer_filter}', month='{month_filter}'")
+        f"GET /purchase-orders: skip={skip}, limit={limit}, search='{search}', layer='{layer_filter}', month='{month_filter}', company_code='{current_user.company_code}'")
 
     db_pos = po_service.fetch_all_pos_from_db(
         skip=skip,
         limit=limit,
-        search=search
+        search=search,
+        company_code=current_user.company_code
         # TODO: Pass layer_filter and month_filter to service layer
     )
     # The service returns list of dicts, Pydantic will validate them against PurchaseOrderResponseSchema

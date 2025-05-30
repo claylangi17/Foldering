@@ -6,6 +6,7 @@ class UserBase(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     email: Optional[EmailStr] = None
     full_name: Optional[str] = None
+    company_code: Optional[int] = None  # Company code for filtering data
     disabled: Optional[bool] = False  # To disable user accounts
 
 

@@ -15,6 +15,7 @@ def fetch_all_pos_from_db(
     skip: int = 0,
     limit: int = 10,
     search: Optional[str] = None,
+    company_code: Optional[int] = None,
     # layer_filter: Optional[str] = None, # TODO: Implement layer filtering
     # month_filter: Optional[int] = None # TODO: Implement month filtering
 ) -> List[Dict[str, Any]]:  # Returning list of dicts for now
@@ -38,6 +39,11 @@ def fetch_all_pos_from_db(
         # Adjust column names if they are different in your DB
         conditions.append("(ITEM_NAME LIKE %s OR PO_No LIKE %s)")
         query_params.extend([f"%{search}%", f"%{search}%"])
+        
+    # Filter by company_code if provided
+    if company_code:
+        conditions.append("company_code = %s")
+        query_params.append(company_code)
 
     # TODO: Add layer_filter logic. This will require joining with layer tables
     # if layer_filter:

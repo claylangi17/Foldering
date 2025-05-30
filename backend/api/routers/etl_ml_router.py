@@ -34,7 +34,7 @@ class ETLParams(BaseModel):
 
 
 @router.post("/trigger-etl", status_code=202)
-async def trigger_etl(params: ETLParams, background_tasks: BackgroundTasks):
+async def trigger_etl(params: ETLParams, background_tasks: BackgroundTasks, train_ml: bool = Query(False, description="Whether to train ML model after ETL")):
     """
     Triggers the ETL process to fetch data from SQL Server, transform it,
     and load it into MySQL. This is an asynchronous operation.
@@ -52,7 +52,21 @@ async def trigger_etl(params: ETLParams, background_tasks: BackgroundTasks):
             params.from_item_code,
             params.to_item_code
         )
-        return {"message": "ETL process started in the background. Check server logs for progress."}
+        
+        # If train_ml is True, also trigger ML training with the same company_code
+        if train_ml:
+            # Convert company_id to integer before passing to ML pipeline
+            try:
+                company_id_int = int(params.company_id)
+                background_tasks.add_task(run_folder_generation_pipeline, company_id_int)
+            except ValueError:
+                # Fall back to original string if conversion fails
+                print(f"Warning: Could not convert company_id '{params.company_id}' to integer")
+                background_tasks.add_task(run_folder_generation_pipeline, params.company_id)
+            
+            return {"message": f"ETL process started in the background, followed by ML training for company {params.company_id}. Check server logs for progress."}
+        else:
+            return {"message": "ETL process started in the background. Check server logs for progress."}
     except Exception as e:
         print(f"Error triggering ETL process: {e}")
         raise HTTPException(
@@ -60,17 +74,23 @@ async def trigger_etl(params: ETLParams, background_tasks: BackgroundTasks):
 
 
 @router.post("/train-ml-model", status_code=202)
-async def train_ml_model(background_tasks: BackgroundTasks):
+async def train_ml_model(company_code: int = Query(None, description="Company code to filter data by"), background_tasks: BackgroundTasks = BackgroundTasks()):
     """
     Triggers the ML model training pipeline.
     This is an asynchronous operation.
+    
+    If company_code is provided, only processes data for that company.
+    Otherwise, processes all data.
     """
     try:
-        print("Received request to train ML model (now folder generation).")
-        # The parameters for run_training_pipeline (like num_clusters_l1) might also come from request body if needed.
-        # Changed function call
-        background_tasks.add_task(run_folder_generation_pipeline)
-        return {"message": "Folder generation process started in the background. Check server logs for progress."}
+        if company_code:
+            print(f"Received request to train ML model for company code: {company_code}")
+            background_tasks.add_task(run_folder_generation_pipeline, company_code)
+            return {"message": f"Folder generation process for company {company_code} started in the background. Check server logs for progress."}
+        else:
+            print("Received request to train ML model for all companies.")
+            background_tasks.add_task(run_folder_generation_pipeline)
+            return {"message": "Folder generation process for all companies started in the background. Check server logs for progress."}
     except Exception as e:
         print(f"Error triggering folder generation process: {e}")
         raise HTTPException(

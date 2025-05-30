@@ -286,11 +286,12 @@ export interface UserCreateData {
 }
 // Re-aligning with UserCreate schema from backend (api/schemas/user_schemas.py)
 // UserCreate(UserBase): password: str
-// UserBase: username, email, full_name, disabled
+// UserBase: username, email, full_name, company_code, disabled
 export interface FrontendUserCreateData {
     username: string;
     email?: string | null;
     full_name?: string | null;
+    company_code?: number | null;
     password: string;
 }
 
@@ -300,6 +301,7 @@ export interface UserResponse { // Corresponds to User schema in backend
     username: string;
     email?: string | null;
     full_name?: string | null;
+    company_code?: number | null;
     role: string;
     disabled?: boolean | null;
 }
@@ -367,6 +369,25 @@ export async function fetchCurrentUser(token: string): Promise<UserResponse> {
     } catch (error) {
         console.error("Error in fetchCurrentUser:", error);
         throw error; // Re-throw to be handled by AuthContext or calling component
+    }
+}
+
+export interface Company {
+    company_code: number;
+    name: string;
+}
+
+export async function fetchCompanies(): Promise<Company[]> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/companies`);
+        const result = await response.json();
+        if (!response.ok) {
+            throw new Error(result.detail || "Failed to fetch companies");
+        }
+        return result as Company[];
+    } catch (error) {
+        console.error("Error in fetchCompanies:", error);
+        throw error;
     }
 }
 

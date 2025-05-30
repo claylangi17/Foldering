@@ -67,7 +67,9 @@ export default function DashboardLayout({
           <div className="flex items-center space-x-4">
             {user && (
               <div className='text-sm'>
-                Logged in as: <strong>{user.username}</strong> (Role: {user.role})
+                Logged in as: <strong>{user.username}</strong>
+                <br/>
+                {user.company_code && <span>Company: {user.company_code}</span>}
               </div>
             )}
             <button

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from "@/components/ui/button";
 import {
@@ -13,18 +13,39 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Link from 'next/link';
-import { registerUser, FrontendUserCreateData } from '@/lib/api'; // Import registerUser and its data type
+import { registerUser, FrontendUserCreateData, fetchCompanies, Company } from '@/lib/api'; // Import registerUser and its data type
 
 export default function RegisterPage() {
     const [username, setUsername] = useState('');
     const [email, setEmail] = useState('');
     const [fullName, setFullName] = useState('');
+    const [companyCode, setCompanyCode] = useState<number | null>(null);
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+    const [companies, setCompanies] = useState<Company[]>([]);
+    const [loadingCompanies, setLoadingCompanies] = useState(true);
     const router = useRouter();
+    
+    // Fetch companies on page load
+    useEffect(() => {
+        const getCompanies = async () => {
+            try {
+                const companyData = await fetchCompanies();
+                setCompanies(companyData);
+            } catch (err) {
+                console.error("Error fetching companies:", err);
+                setError("Failed to load companies. Please try again later.");
+            } finally {
+                setLoadingCompanies(false);
+            }
+        };
+        
+        getCompanies();
+    }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -41,6 +62,7 @@ export default function RegisterPage() {
                 username,
                 email: email || null, // Send null if empty, as schema allows Optional
                 full_name: fullName || null, // Send null if empty
+                company_code: companyCode, // Send the selected company code
                 password
             };
             const response = await registerUser(userData);
@@ -101,6 +123,29 @@ export default function RegisterPage() {
                                 onChange={(e) => setFullName(e.target.value)}
                                 disabled={loading}
                             />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="company">Company (Required)</Label>
+                            <Select 
+                                onValueChange={(value) => setCompanyCode(Number(value))}
+                                disabled={loading || loadingCompanies}
+                                required
+                            >
+                                <SelectTrigger id="company">
+                                    <SelectValue placeholder="Select your company" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {loadingCompanies ? (
+                                        <SelectItem value="loading" disabled>Loading companies...</SelectItem>
+                                    ) : (
+                                        companies.map((company) => (
+                                            <SelectItem key={company.company_code} value={company.company_code.toString()}>
+                                                {company.name}
+                                            </SelectItem>
+                                        ))
+                                    )}
+                                </SelectContent>
+                            </Select>
                         </div>
                         <div className="grid gap-2">
                             <Label htmlFor="password">Password</Label>

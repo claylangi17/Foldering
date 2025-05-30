@@ -13,7 +13,7 @@ def get_user_by_username(username: str) -> Optional[UserInDB]:
         return None
 
     cursor = conn.cursor(dictionary=True)
-    query = f"SELECT id, username, email, full_name, hashed_password, role, disabled FROM {USERS_TABLE_NAME} WHERE username = %s"
+    query = f"SELECT id, username, email, full_name, hashed_password, role, disabled, company_code FROM {USERS_TABLE_NAME} WHERE username = %s"
     try:
         cursor.execute(query, (username,))
         user_data = cursor.fetchone()
@@ -52,8 +52,8 @@ def create_user(user_in: UserCreate) -> Optional[User]:
     # but we can be explicit or allow role setting during creation if needed.
     # For now, using the schema default.
     query = f"""
-        INSERT INTO {USERS_TABLE_NAME} (username, email, full_name, hashed_password, role, disabled)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO {USERS_TABLE_NAME} (username, email, full_name, hashed_password, role, disabled, company_code)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
     """
     # Assuming default role 'user' and disabled 'False' for new users
     # Role can be enhanced later (e.g. admin creates SPV)
@@ -67,7 +67,8 @@ def create_user(user_in: UserCreate) -> Optional[User]:
             user_in.full_name,
             hashed_password,
             default_role,  # Explicitly set default role
-            default_disabled_status  # Explicitly set default disabled status
+            default_disabled_status,  # Explicitly set default disabled status
+            user_in.company_code  # Include company_code
         ))
         conn.commit()
         user_id = cursor.lastrowid
@@ -79,7 +80,8 @@ def create_user(user_in: UserCreate) -> Optional[User]:
                 email=user_in.email,
                 full_name=user_in.full_name,
                 role=default_role,
-                disabled=default_disabled_status
+                disabled=default_disabled_status,
+                company_code=user_in.company_code
             )
         return None
     except Exception as e:
