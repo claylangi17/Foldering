@@ -167,7 +167,8 @@ export interface FrontendItemInLayer {
     Keterangan?: string | null;
 }
 
-export async function fetchLayerData(slugParts: string[]): Promise<FrontendLayerHierarchyResponse> {
+export async function fetchLayerData(slugParts: string[], token: string): Promise<FrontendLayerHierarchyResponse> {
+    console.log(`api.ts: fetchLayerData - ENTER - slug: ${slugParts.join('/')}, token: ${token ? token.substring(0,10)+'...' : 'null'}`);
     if (!slugParts || slugParts.length === 0) {
         console.error("fetchLayerData: slugParts cannot be empty.");
         return { parent_name: null, layers: [] }; // Return default structure
@@ -175,8 +176,12 @@ export async function fetchLayerData(slugParts: string[]): Promise<FrontendLayer
     const slug = slugParts.join('/');
     try {
         const url = `${API_BASE_URL}/classification/layers/${slug}`;
-        console.log(`Fetching Layer Data from: ${url}`);
-        const response = await fetch(url);
+        console.log(`api.ts: fetchLayerData - ABOUT TO FETCH from ${url}. Token for Authorization header: ${token ? token.substring(0,10)+'...' : 'null'}`);
+        const response = await fetch(url, {
+            headers: {
+                "Authorization": `Bearer ${token}`,
+            },
+        });
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({ detail: "Unknown error fetching layer data" }));
@@ -199,7 +204,8 @@ export interface LayerItemsResponse {
     items: FrontendItemInLayer[];
 }
 
-export async function fetchItemsForLayerDefinitionPk(layerDefinitionPk: number): Promise<LayerItemsResponse> {
+export async function fetchItemsForLayerDefinitionPk(layerDefinitionPk: number, token: string): Promise<LayerItemsResponse> {
+    console.log(`api.ts: fetchItemsForLayerDefinitionPk - ENTER - pk: ${layerDefinitionPk}, token: ${token ? token.substring(0,10)+'...' : 'null'}`);
     if (layerDefinitionPk <= 0) {
         console.error("fetchItemsForLayerDefinitionPk: layerDefinitionPk must be a positive number.");
         // Return a default structure that matches LayerItemsResponse
@@ -208,7 +214,12 @@ export async function fetchItemsForLayerDefinitionPk(layerDefinitionPk: number):
     try {
         const url = `${API_BASE_URL}/classification/item-details-by-layer-definition-pk/${layerDefinitionPk}`;
         console.log(`Fetching Items for Layer Definition PK from: ${url}`);
-        const response = await fetch(url);
+        console.log(`api.ts: fetchItemsForLayerDefinitionPk - ABOUT TO FETCH from ${url}. Token for Authorization header: ${token ? token.substring(0,10)+'...' : 'null'}`);
+    const response = await fetch(url, {
+            headers: {
+                "Authorization": `Bearer ${token}`,
+            },
+        });
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({ detail: "Unknown error fetching items for layer definition pk" }));

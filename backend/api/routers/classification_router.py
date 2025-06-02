@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query, Path
+from fastapi import APIRouter, HTTPException, Query, Path, Depends
 from typing import List, Optional, Any
 # Import LayerNode, LayerItemsResponse, and the new LayerHierarchyResponse schemas
 from ..schemas.classification_schemas import LayerNode as LayerNodeSchema, LayerItemsResponse, LayerHierarchyResponse
@@ -6,6 +6,8 @@ from ..schemas.classification_schemas import LayerNode as LayerNodeSchema, Layer
 # Alias for PurchaseOrderBase
 from ..schemas.po_schemas import PurchaseOrderBase as ItemDetailSchema
 from ..services import classification_service
+from ..schemas.user_schemas import UserInDBBase  # UserInDBBase has company_code, UserInDB is returned by dependency
+from ..core.dependencies import get_current_active_user # Corrected import path
 
 router = APIRouter(
     prefix="/classification",
@@ -17,7 +19,8 @@ router = APIRouter(
 
 @router.get("/layers/{slug:path}", response_model=LayerHierarchyResponse)
 async def get_layers_by_slug(
-    slug: str = Path(..., description="Path representing the layer hierarchy, e.g., 'L1' or 'L1/123/L2'. '123' is a parent layer_definition primary key.")
+    slug: str = Path(..., description="Path representing the layer hierarchy, e.g., 'L1' or 'L1/123/L2'. '123' is a parent layer_definition primary key."),
+    current_user: UserInDBBase = Depends(get_current_active_user)
 ):
     """
     Retrieve classification categories based on a hierarchical slug.
@@ -94,6 +97,7 @@ async def get_layers_by_slug(
         f"Service call: fetch_distinct_layers_from_db(layer_level_to_fetch={layer_level_to_fetch}, parent_layer_definition_pk={parent_layer_definition_pk})")
     layer_data = classification_service.fetch_distinct_layers_from_db(
         layer_level_to_fetch=layer_level_to_fetch,
+        company_code=current_user.company_code, # Added company_code
         parent_layer_definition_pk=parent_layer_definition_pk
     )
     return layer_data
@@ -102,7 +106,8 @@ async def get_layers_by_slug(
 @router.get("/item-details-by-layer-definition-pk/{layer_definition_pk}", response_model=LayerItemsResponse)
 async def get_item_details_by_layer_definition_pk(
     layer_definition_pk: int = Path(
-        ..., description="The primary key (id) of the layer_definition record.")
+        ..., description="The primary key (id) of the layer_definition record."),
+    current_user: UserInDBBase = Depends(get_current_active_user)
 ):
     """
     Retrieve item details (e.g., list of POs) associated with a specific 
@@ -117,7 +122,8 @@ async def get_item_details_by_layer_definition_pk(
 
     # The service function now returns a dict {"layer_name": str, "items": List[Dict]}
     layer_data_with_items = classification_service.fetch_items_for_layer_from_db(
-        layer_definition_pk=layer_definition_pk
+        layer_definition_pk=layer_definition_pk,
+        company_code=current_user.company_code # Added company_code
     )
     # FastAPI will validate the returned dict against the LayerItemsResponse model
     return layer_data_with_items

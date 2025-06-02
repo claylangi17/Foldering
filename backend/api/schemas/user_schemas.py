@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field, EmailStr
 from typing import Optional
+from datetime import datetime
 
 
 class UserBase(BaseModel):
@@ -17,6 +18,8 @@ class UserCreate(UserBase):
 class UserInDBBase(UserBase):
     id: int
     role: str = Field(default="user")  # Default role is 'user'
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True

@@ -42,9 +42,10 @@ export default function LayerPage({ params: paramsProp }: LayerPageProps) {
     const [folderSearchTerm, setFolderSearchTerm] = useState(''); // State for folder search term
     const [selectedYear, setSelectedYear] = useState<string>('');
     const [selectedMonth, setSelectedMonth] = useState<string>('');
-    const { user } = useAuth(); // Get user from AuthContext
+    const { user, token, isLoading } = useAuth(); // Get user, token, and isLoading state from AuthContext
 
     console.log(`LayerPage Render - User Role for useMemo: ${user?.role}`); // Debug user role
+    console.log(`LayerPage Render - isLoading: ${isLoading}, Token: ${token ? token.substring(0,10)+'...' : 'null'}`);
     // Generate columns dynamically based on user role, memoize based on user role
     const columns = useMemo(() => getItemColumns(user?.role), [user?.role]);
 
@@ -185,7 +186,25 @@ export default function LayerPage({ params: paramsProp }: LayerPageProps) {
 
 
     useEffect(() => {
-        async function loadData() {
+        console.log(`LayerPage useEffect triggered. isLoading: ${isLoading}, Slug: ${slug ? slug.join('/') : 'undefined'}, Token: ${token ? token.substring(0,10)+'...' : 'null'}`);
+
+        if (isLoading) {
+            console.log("LayerPage useEffect: Auth context is loading, deferring data load.");
+            // Optionally set a loading state specific to auth if not already handled by global loading
+            // setDisplayData({ type: 'loading', breadcrumbs: [], error: 'Authenticating...' }); 
+            return; // Don't proceed if auth is still loading
+        }
+
+        // If we reach here, isLoading is false.
+        const loadData = async () => {
+            if (!token) { // This check is now for when isLoading is false, but token is still null (e.g. not logged in, or auto-login failed)
+                console.log("LayerPage loadData: Auth loaded but no token. User not authenticated.");
+                // Optionally set an error state or a message indicating authentication is required
+                setDisplayData({ type: 'error', breadcrumbs: [], error: 'Authentication required to view this page.' });
+                return;
+            }
+            console.log(`LayerPage loadData: Attempting to load data with token: ${token.substring(0, 10)}...`);
+
             // Initial breadcrumbs (can be refined later to show names instead of IDs)
             let currentBreadcrumbs: Array<{ name: string; href: string }> = [];
             if (slug) {
@@ -246,8 +265,9 @@ export default function LayerPage({ params: paramsProp }: LayerPageProps) {
 
             try {
                 if (layerDefinitionPkForItems !== null) {
+                    console.log(`LayerPage loadData: Calling fetchItemsForLayerDefinitionPk for PK ${layerDefinitionPkForItems} with token ${token.substring(0,10)}...`);
                     // fetchItemsForLayerDefinitionPk now returns { layer_name: string, items: FrontendItemInLayer[] }
-                    const layerDataWithItems = await fetchItemsForLayerDefinitionPk(layerDefinitionPkForItems);
+                    const layerDataWithItems = await fetchItemsForLayerDefinitionPk(layerDefinitionPkForItems, token);
 
                     // Update the last breadcrumb part if it was a placeholder for this layer's ID
                     const updatedBreadcrumbs = [...currentBreadcrumbs];
@@ -271,8 +291,9 @@ export default function LayerPage({ params: paramsProp }: LayerPageProps) {
                         breadcrumbs: updatedBreadcrumbs, // Use updated breadcrumbs
                     });
                 } else if (apiSlugForLayers.length > 0) {
+                    console.log(`LayerPage loadData: Calling fetchLayerData for slug parts: ${apiSlugForLayers.join('/')} with token ${token.substring(0,10)}...`);
                     // fetchLayerData now returns { parent_name: string | null, layers: FrontendLayerNode[] }
-                    const fetchedLayerData = await fetchLayerData(apiSlugForLayers);
+                    const fetchedLayerData = await fetchLayerData(apiSlugForLayers, token);
 
                     let updatedBreadcrumbs = [...currentBreadcrumbs];
                     // If we fetched L2 layers (effectiveCurrentLevel === 2) and have a parent_name,
@@ -311,7 +332,7 @@ export default function LayerPage({ params: paramsProp }: LayerPageProps) {
         }
 
         loadData();
-    }, [slug]);
+    }, [slug, token, isLoading]); // Rerun if slug, token, or isLoading changes
 
     const currentPathForLinks = slug ? `/layers/${slug.join('/')}` : '/layers';
 

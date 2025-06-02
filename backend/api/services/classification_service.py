@@ -13,6 +13,7 @@ DEFINITIONS_TABLE_NAME = "layer_definitions"
 
 def fetch_distinct_layers_from_db(
     layer_level_to_fetch: int,  # 1 for L1, 2 for L2
+    company_code: int, # Added company_code parameter
     # Primary key (id) of the parent in layer_definitions
     parent_layer_definition_pk: Optional[int] = None
     # Returns {"parent_name": Optional[str], "layers": List[Dict[str, Any]]}
@@ -40,8 +41,8 @@ def fetch_distinct_layers_from_db(
         # Fetch parent name if parent_layer_definition_pk is provided
         try:
             cursor.execute(
-                f"SELECT descriptive_name FROM {DEFINITIONS_TABLE_NAME} WHERE id = %s",
-                (parent_layer_definition_pk,)
+                f"SELECT descriptive_name FROM {DEFINITIONS_TABLE_NAME} WHERE id = %s AND company_code = %s",
+                (parent_layer_definition_pk, company_code)
             )
             parent_row = cursor.fetchone()
             if parent_row:
@@ -52,22 +53,22 @@ def fetch_distinct_layers_from_db(
             # Not returning early, just parent_name might be None
 
     if parent_layer_definition_pk is None:  # Fetching L1 definitions
-        # For L1, item_count is the number of L2 children
+        # For L1, item_count is the number of L2 children for the same company
         full_query = f"""
             SELECT
                 l1.id,
                 l1.descriptive_name AS name,
                 l1.parent_layer_id,
-                (SELECT COUNT(DISTINCT l2.id) FROM {DEFINITIONS_TABLE_NAME} l2 WHERE l2.parent_layer_id = l1.id AND l2.layer_name_db = 'L2_Parsed_Folders') AS item_count
+                (SELECT COUNT(DISTINCT l2.id) FROM {DEFINITIONS_TABLE_NAME} l2 WHERE l2.parent_layer_id = l1.id AND l2.layer_name_db = 'L2_Parsed_Folders' AND l2.company_code = %s) AS item_count
             FROM {DEFINITIONS_TABLE_NAME} l1
-            WHERE l1.parent_layer_id IS NULL AND l1.layer_name_db = 'L1_Parsed_Folders'
+            WHERE l1.parent_layer_id IS NULL AND l1.layer_name_db = 'L1_Parsed_Folders' AND l1.company_code = %s
             GROUP BY l1.id, l1.descriptive_name, l1.parent_layer_id
             ORDER BY l1.descriptive_name
         """
-        # No params needed for this L1 query
+        params.extend([company_code, company_code]) # For subquery and main query
     # Fetching L2 definitions (children of an L1)
     elif layer_level_to_fetch == 2:
-        # For L2, item_count is the number of distinct PO items under this L2 folder
+        # For L2, item_count is the number of distinct PO items under this L2 folder for the same company
         full_query = f"""
             SELECT
                 ld.id,
@@ -75,12 +76,13 @@ def fetch_distinct_layers_from_db(
                 ld.parent_layer_id,
                 COUNT(DISTINCT ic.item_po_id) AS item_count
             FROM {DEFINITIONS_TABLE_NAME} ld
-            LEFT JOIN {CLASSIFICATIONS_TABLE_NAME} ic ON ld.cluster_label_id = ic.cluster_label AND ic.layer_name = 'L2_Parsed_Folders'
-            WHERE ld.parent_layer_id = %s AND ld.layer_name_db = 'L2_Parsed_Folders'
+            LEFT JOIN {CLASSIFICATIONS_TABLE_NAME} ic ON ld.cluster_label_id = ic.cluster_label AND ic.layer_name = 'L2_Parsed_Folders' AND ic.company_code = %s
+            WHERE ld.parent_layer_id = %s AND ld.layer_name_db = 'L2_Parsed_Folders' AND ld.company_code = %s
             GROUP BY ld.id, ld.descriptive_name, ld.parent_layer_id
             ORDER BY ld.descriptive_name
         """
-        params.append(parent_layer_definition_pk)
+        # company_code for JOIN with ic, parent_pk, company_code for WHERE ld
+        params.extend([company_code, parent_layer_definition_pk, company_code])
     # Add logic for L3 if it were to be re-introduced with parsing.
     # For now, the user's request implies L2 is the final folder before item list.
     # So, layer_level_to_fetch == 3 (items) is handled by fetch_items_for_layer_from_db
@@ -123,7 +125,7 @@ def fetch_distinct_layers_from_db(
     return {"parent_name": parent_name, "layers": results}
 
 
-def fetch_items_for_layer_from_db(layer_definition_pk: int) -> Dict[str, Any]:
+def fetch_items_for_layer_from_db(layer_definition_pk: int, company_code: int) -> Dict[str, Any]:
     """
     Fetches item details (POs) that belong to a specific layer definition,
     and the name of the layer itself.
@@ -140,10 +142,10 @@ def fetch_items_for_layer_from_db(layer_definition_pk: int) -> Dict[str, Any]:
     items = []
     layer_descriptive_name = "Unknown Layer"
 
-    # 1. Get layer_name_db, cluster_label_id, and descriptive_name from layer_definitions table
-    get_layer_info_query = f"SELECT layer_name_db, cluster_label_id, descriptive_name FROM {DEFINITIONS_TABLE_NAME} WHERE id = %s"
+    # 1. Get layer_name_db, cluster_label_id, and descriptive_name from layer_definitions table for the given company
+    get_layer_info_query = f"SELECT layer_name_db, cluster_label_id, descriptive_name FROM {DEFINITIONS_TABLE_NAME} WHERE id = %s AND company_code = %s"
     try:
-        cursor.execute(get_layer_info_query, (layer_definition_pk,))
+        cursor.execute(get_layer_info_query, (layer_definition_pk, company_code))
         layer_info = cursor.fetchone()
     except Exception as e:
         print(
@@ -194,12 +196,13 @@ def fetch_items_for_layer_from_db(layer_definition_pk: int) -> Dict[str, Any]:
             SUM(po.QTY_ORDER) OVER (PARTITION BY po.ITEM ORDER BY po.TGL_PO ASC, po.id ASC ROWS UNBOUNDED PRECEDING) AS Cumulative_Item_QTY,
             SUM(po.Sum_of_Order_Amount_IDR) OVER (PARTITION BY po.ITEM ORDER BY po.TGL_PO ASC, po.id ASC ROWS UNBOUNDED PRECEDING) AS Cumulative_Item_Amount_IDR
         FROM purchase_orders po
-        JOIN {CLASSIFICATIONS_TABLE_NAME} ic ON po.id = ic.item_po_id
-        WHERE ic.layer_name = %s AND ic.cluster_label = %s
+        JOIN {CLASSIFICATIONS_TABLE_NAME} ic ON po.id = ic.item_po_id AND ic.company_code = %s
+        WHERE ic.layer_name = %s AND ic.cluster_label = %s AND po.company_code = %s
         ORDER BY po.TGL_PO DESC, po.id DESC 
         LIMIT 100 -- Consider pagination in the future. Note: Window functions are applied before LIMIT.
     """
-    params_items = (target_layer_name_db, target_cluster_label_id)
+    # company_code for ic, target_layer_name_db, target_cluster_label_id, company_code for po
+    params_items = (company_code, target_layer_name_db, target_cluster_label_id, company_code)
 
     try:
         print(
