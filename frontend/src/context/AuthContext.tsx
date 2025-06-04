@@ -32,6 +32,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     useEffect(() => {
         const attemptAutoLogin = async () => {
+            setIsLoading(true); // Ensure loading starts at the beginning
             const storedToken = localStorage.getItem('authToken');
             if (storedToken) {
                 try {
@@ -50,10 +51,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 } catch (error) {
                     console.error("Auto-login failed, token might be invalid:", error);
                     localStorage.removeItem('authToken'); // Clear invalid token
+                    setToken(null);
+                    setUser(null);
+                    setIsAuthenticated(false);
                     // Any other cleanup if needed
+                } finally {
+                    setIsLoading(false); // Ensure loading stops after attempt
                 }
+            } else {
+                // No token found, ensure clean unauthenticated state
+                setToken(null);
+                setUser(null);
+                setIsAuthenticated(false);
+                setIsLoading(false); // Ensure loading stops
             }
-            setIsLoading(false);
         };
         attemptAutoLogin();
     }, []);

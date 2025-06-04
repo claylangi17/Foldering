@@ -38,6 +38,7 @@ class LayerNode(BaseModel):
     level: int = Field(..., example=1, ge=1, le=2)
     # Number of items in this category
     item_count: Optional[int] = Field(None, example=150)
+    total_po_count: Optional[int] = Field(None, description="Total number of POs under this layer, including all descendants", example=500)
     # ID of the parent node in the hierarchy
     parent_id: Optional[str] = Field(None, example="L0_Root_Or_Null")
 

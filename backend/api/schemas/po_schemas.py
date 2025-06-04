@@ -7,7 +7,8 @@ from datetime import datetime
 
 
 class PurchaseOrderBase(BaseModel):
-    PO_No: Optional[str] = Field(None, example="PO2023-00123")
+    id: int = Field(..., example=12345) # Primary Key of the Purchase Order
+    PO_NO: Optional[str] = Field(default=None, example="PO2023-00123")
     TGL_PO: Optional[datetime] = None
     ITEM: Optional[str] = None
     ITEM_DESC: Optional[str] = None
@@ -26,10 +27,10 @@ class PurchaseOrderBase(BaseModel):
     RECEIVED_DATE: Optional[datetime] = None
     PO_Status: Optional[str] = None
     Sum_of_Order_Amount_IDR: Optional[float] = None
-    Total_Cumulative_QTY_Order: Optional[float] = None
-    Total_Cumulative_IDR_Amount: Optional[float] = None
     Checklist: Optional[bool] = False
     Keterangan: Optional[str] = ""
+    Cumulative_Item_QTY: Optional[float] = None
+    Cumulative_Item_Amount_IDR: Optional[float] = None
 
     class Config:
         from_attributes = True

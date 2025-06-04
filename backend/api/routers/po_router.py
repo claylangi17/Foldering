@@ -7,7 +7,7 @@ from ..schemas.po_schemas import PurchaseOrderCreate as PurchaseOrderCreateSchem
 from ..schemas.po_schemas import PurchaseOrderUpdate as PurchaseOrderUpdateSchema
 from ..schemas import user_schemas  # For UserInDB type hint
 # Assuming PurchaseOrderList is also defined in po_schemas for a paginated response
-# from ..schemas.po_schemas import PurchaseOrderList
+from ..schemas.po_schemas import PurchaseOrderList
 from ..services import po_service
 from ..core.dependencies import get_current_active_spv_user, get_current_active_user  # Import dependencies
 
@@ -20,14 +20,16 @@ router = APIRouter(
 
 
 # Using imported schema
-@router.get("/", response_model=List[PurchaseOrderResponseSchema])
+@router.get("/", response_model=PurchaseOrderList)
 async def get_all_purchase_orders(
     skip: int = Query(
         0, ge=0, description="Number of records to skip for pagination"),
     limit: int = Query(
         10, ge=1, le=100, description="Maximum number of records to return"),
-    search: Optional[str] = Query(
-        None, description="Search term for item name or PO number"),
+    search_field: Optional[str] = Query(
+        None, description="Field to search in (e.g., PO_NO, Keterangan, ALL for generic search)"),
+    search_value: Optional[str] = Query(
+        None, description="Value to search for"),
     layer_filter: Optional[str] = Query(
         None, description="Filter by classification layer (e.g., L1_ClusterX)"),
     month_filter: Optional[int] = Query(
@@ -38,16 +40,19 @@ async def get_all_purchase_orders(
     Retrieve a list of purchase orders with optional pagination, search, and filters.
     """
     print(
-        f"GET /purchase-orders: skip={skip}, limit={limit}, search='{search}', layer='{layer_filter}', month='{month_filter}', company_code='{current_user.company_code}'")
+        f"GET /purchase-orders: skip={skip}, limit={limit}, search_field='{search_field}', search_value='{search_value}', layer='{layer_filter}', month='{month_filter}', company_code='{current_user.company_code}'")
 
     db_pos = po_service.fetch_all_pos_from_db(
         skip=skip,
         limit=limit,
-        search=search,
-        company_code=current_user.company_code
-        # TODO: Pass layer_filter and month_filter to service layer
+        search_field=search_field,
+        search_value=search_value,
+        company_code=current_user.company_code,
+        layer_filter=layer_filter # Pass the layer_filter
+        # month_filter can be added similarly if needed later
     )
-    # The service returns list of dicts, Pydantic will validate them against PurchaseOrderResponseSchema
+    # The service now returns a dict {'items': [...], 'total': ...}
+    # Pydantic will validate this structure against PurchaseOrderList schema.
     return db_pos
 
 
@@ -89,7 +94,7 @@ async def update_purchase_order_fields(
     # Using imported schema
     update_data: PurchaseOrderUpdateSchema = Body(...),
     current_user: user_schemas.UserInDB = Depends(
-        get_current_active_spv_user)  # Secure endpoint
+        get_current_active_user)  # Changed to allow any authenticated user
 ):
     """
     Update specific fields of a purchase order (e.g., Checklist, Keterangan).
@@ -97,7 +102,17 @@ async def update_purchase_order_fields(
     (Service layer for update not yet implemented)
     """
     print(
-        f"PUT /purchase-orders/{po_id} with data: {update_data.dict(exclude_unset=True)}")
+        f"PUT /purchase-orders/{po_id} with data: {update_data.dict(exclude_unset=True)} by user {current_user.username} (role: {current_user.role})")
+
+    # Check if an attempt is made to update the Checklist field
+    if update_data.Checklist is not None:
+        # If Checklist is being updated, ensure the user has the 'spv' role
+        if current_user.role.lower() != 'spv':
+            raise HTTPException(
+                status_code=403,
+                detail="Only SPV users can update the checklist."
+            )
+
     updated_po_db = po_service.update_po_fields_in_db(
         po_id=po_id, update_data=update_data)
     if not updated_po_db:

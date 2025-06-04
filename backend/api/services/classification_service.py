@@ -1,5 +1,6 @@
 from typing import List, Optional, Dict, Any
 from ..db.database import get_mysql_connection
+from ..schemas.po_schemas import PurchaseOrderBase # Added for debugging
 # Assuming FrontendLayerNode structure is what we want to return,
 # or we define a similar Pydantic schema for API response.
 # from ..schemas.classification_schemas import LayerNode as LayerNodeSchema # If defined
@@ -56,25 +57,37 @@ def fetch_distinct_layers_from_db(
         # For L1, item_count is the number of L2 children for the same company
         full_query = f"""
             SELECT
-                l1.id,
-                l1.descriptive_name AS name,
-                l1.parent_layer_id,
-                (SELECT COUNT(DISTINCT l2.id) FROM {DEFINITIONS_TABLE_NAME} l2 WHERE l2.parent_layer_id = l1.id AND l2.layer_name_db = 'L2_Parsed_Folders' AND l2.company_code = %s) AS item_count
-            FROM {DEFINITIONS_TABLE_NAME} l1
-            WHERE l1.parent_layer_id IS NULL AND l1.layer_name_db = 'L1_Parsed_Folders' AND l1.company_code = %s
-            GROUP BY l1.id, l1.descriptive_name, l1.parent_layer_id
-            ORDER BY l1.descriptive_name
+                ld.id,
+                ld.descriptive_name AS name,
+                ld.parent_layer_id,
+                (SELECT COUNT(DISTINCT child_ld.id) FROM {DEFINITIONS_TABLE_NAME} child_ld WHERE child_ld.parent_layer_id = ld.id AND child_ld.layer_name_db = 'L2_Parsed_Folders' AND child_ld.company_code = ld.company_code) AS item_count,
+                (
+                    SELECT COUNT(DISTINCT ic.item_po_id)
+                    FROM {DEFINITIONS_TABLE_NAME} l2_sub_children
+                    JOIN {CLASSIFICATIONS_TABLE_NAME} ic ON l2_sub_children.cluster_label_id = ic.cluster_label 
+                                                          AND ic.layer_name = 'L2_Parsed_Folders' 
+                                                          AND ic.company_code = l2_sub_children.company_code
+                    WHERE l2_sub_children.parent_layer_id = ld.id 
+                      AND l2_sub_children.layer_name_db = 'L2_Parsed_Folders' 
+                      AND l2_sub_children.company_code = ld.company_code
+                ) AS total_po_count
+            FROM {DEFINITIONS_TABLE_NAME} ld
+            WHERE ld.layer_name_db = 'L1_Parsed_Folders' AND ld.company_code = %s
+            GROUP BY ld.id, ld.descriptive_name, ld.parent_layer_id
+            ORDER BY ld.descriptive_name
         """
-        params.extend([company_code, company_code]) # For subquery and main query
+        params = [company_code] # Only one company_code needed for the outer WHERE
     # Fetching L2 definitions (children of an L1)
     elif layer_level_to_fetch == 2:
         # For L2, item_count is the number of distinct PO items under this L2 folder for the same company
+        # total_po_count is the sum of all POs under this L2 folder.
         full_query = f"""
             SELECT
                 ld.id,
                 ld.descriptive_name AS name,
                 ld.parent_layer_id,
-                COUNT(DISTINCT ic.item_po_id) AS item_count
+                COUNT(DISTINCT ic.item_po_id) AS item_count,
+                COUNT(DISTINCT ic.item_po_id) AS total_po_count
             FROM {DEFINITIONS_TABLE_NAME} ld
             LEFT JOIN {CLASSIFICATIONS_TABLE_NAME} ic ON ld.cluster_label_id = ic.cluster_label AND ic.layer_name = 'L2_Parsed_Folders' AND ic.company_code = %s
             WHERE ld.parent_layer_id = %s AND ld.layer_name_db = 'L2_Parsed_Folders' AND ld.company_code = %s
@@ -89,12 +102,16 @@ def fetch_distinct_layers_from_db(
     else:  # Should not happen if UI calls correctly for L1 or L2 nodes
         print(
             f"ClassificationService: Unexpected layer_level_to_fetch: {layer_level_to_fetch} with parent_pk: {parent_layer_definition_pk}")
-        # Ensure cursor and connection are closed in this path too
+        # Ensure cursor and connection are closed in this path
         if cursor:
             cursor.close()
         if conn and conn.is_connected():
             conn.close()
-        return default_response  # Return default response structure
+        # Ensure the parent_name fetched at the beginning is part of the final response.
+        # The 'results' list pertains to the children layers (L1 list or L2 list under a parent).
+        # If the query for children layers was skipped (e.g., in the 'else' block above for L1 node name fetch),
+        # 'results' would be empty, which is correct for that scenario.
+        return {"parent_name": parent_name, "layers": []}
 
     try:
         print(
@@ -104,11 +121,11 @@ def fetch_distinct_layers_from_db(
 
         for row in raw_results:
             results.append({
-                "id": str(row["id"]),  # This is layer_definitions.id (PK)
+                "id": str(row["id"]),
                 "name": str(row["name"]),
                 "item_count": int(row["item_count"]),
+                "total_po_count": int(row.get("total_po_count")) if row.get("total_po_count") is not None else 0,
                 "level": layer_level_to_fetch,
-                # parent_id is the PK of the parent in layer_definitions
                 "parent_id": str(row["parent_layer_id"]) if row["parent_layer_id"] is not None else None
             })
         print(
@@ -220,7 +237,7 @@ def fetch_items_for_layer_from_db(layer_definition_pk: int, company_code: int) -
             # Map to the Pydantic model (PurchaseOrder / PurchaseOrderBase) fields
             items.append({
                 "id": row.get("id"),
-                "PO_No": str(row.get("PO_No") or ""),
+                "PO_NO": row.get("PO_No"),  # Key changed to PO_NO to match Pydantic field
                 "ITEM": str(row.get("ITEM_NAME") or ""),
                 "ITEM_DESC": str(row.get("ITEM_DESC") or ""),
                 "Supplier_Name": str(row.get("Supplier_Name") or ""),

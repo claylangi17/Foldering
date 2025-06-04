@@ -18,6 +18,7 @@ import {
   LogOutIcon,
   MenuIcon,
 } from 'lucide-react';
+import { Toaster } from 'sonner';
 
 // A simple loading component for the dashboard layout
 const DashboardLoadingSkeleton = () => (
@@ -85,17 +86,17 @@ export default function DashboardLayout({
           </Link>
         </div>
         <nav className="flex-1 overflow-auto py-4">
-          <ul className="grid items-start px-4 text-sm font-medium">
+          <ul className="grid items-start px-4 text-base font-medium">
             {navItems.map((item) => (
               <li key={item.href}>
                 <Link
                   href={item.href}
                   className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
+                    "flex items-center gap-3 rounded-lg px-3 py-3 text-muted-foreground transition-all hover:text-primary",
                     pathname === item.href && "bg-muted text-primary"
                   )}
                 >
-                  <item.icon className="h-4 w-4" />
+                  <item.icon className="h-5 w-5" />
                   {item.label}
                 </Link>
               </li>
@@ -106,15 +107,15 @@ export default function DashboardLayout({
           <Link
             href={profileNavItem.href}
             className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary mb-2",
+                "flex items-center gap-3 rounded-lg px-3 py-3 text-muted-foreground transition-all hover:text-primary mb-2",
                 pathname === profileNavItem.href && "bg-muted text-primary"
             )}
           >
-            <profileNavItem.icon className="h-4 w-4" />
+            <profileNavItem.icon className="h-5 w-5" />
             {profileNavItem.label}
           </Link>
-          <Button onClick={handleLogout} variant="ghost" className="w-full justify-start text-muted-foreground hover:text-primary">
-            <LogOutIcon className="mr-2 h-4 w-4" />
+          <Button onClick={handleLogout} variant="ghost" className="w-full justify-start text-muted-foreground hover:text-primary text-base py-3 px-3">
+            <LogOutIcon className="mr-2 h-5 w-5" />
             Log out
           </Button>
         </div>
@@ -182,6 +183,7 @@ export default function DashboardLayout({
           <p>&copy; {new Date().getFullYear()} AI PO Classification System. All rights reserved.</p>
         </footer> */}
       </div>
+      <Toaster richColors position="top-right" />
     </div>
   );
 }

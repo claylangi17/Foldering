@@ -17,150 +17,42 @@ import { useAuth } from "@/context/AuthContext"; // Import useAuth to get token
 import { useState, useEffect } from "react"; // To manage local state for immediate feedback
 import { Input } from "@/components/ui/input"; // Import Input for Keterangan
 
-export const getItemColumns = (currentUserRole: string | undefined): ColumnDef<FrontendItemInLayer>[] => {
+export const getItemColumns = (
+  currentUserRole: string | undefined,
+  onShowDetails: (item: FrontendItemInLayer) => void // Add onShowDetails prop
+): ColumnDef<FrontendItemInLayer>[] => {
     console.log(`getItemColumns called with role: ${currentUserRole}`); // Log received role
     // Make comparison case-insensitive
     const isSpv = currentUserRole?.toLowerCase() === 'spv';
 
-    // Define cell component for Checklist - now accepts isSpv as a prop
-    const ChecklistCell = ({ row, isSpvProp }: { row: any; isSpvProp: boolean }) => {
-        const { token } = useAuth();
-        const poId = row.original?.id; // Still attempting to get ID
-        const initialChecked = !!row.getValue("Checklist");
-        const [isChecked, setIsChecked] = useState(initialChecked);
-        const [isUpdating, setIsUpdating] = useState(false);
-
-        // Debugging logs
-        console.log(`ChecklistCell Render - Row Original:`, row.original);
-        // Use the isSpvProp prop received by the component
-        console.log(`ChecklistCell Render: PO ID ${poId}, isSpv=${isSpvProp}, hasToken=${!!token}, initialChecked=${initialChecked}`);
-
-        const handleCheckedChange = async (value: boolean | "indeterminate") => {
-            // Use the isSpvProp prop
-            console.log(`Checklist Changed: PO ID ${poId}, New Value=${value}, isSpv=${isSpvProp}, hasToken=${!!token}`);
-            if (typeof value === 'boolean' && isSpvProp && token && poId) {
-                setIsUpdating(true);
-                try {
-                    setIsChecked(value);
-                    console.log(`Calling updatePOChecklist for PO ID ${poId} with value ${value}`);
-                    await updatePOChecklist(poId, value, token);
-                    console.log(`Checklist for PO ID ${poId} updated successfully to ${value}`);
-                } catch (error) {
-                    console.error(`Failed to update checklist for PO ID ${poId}:`, error);
-                    setIsChecked(!value);
-                    alert(`Error updating checklist: ${(error as Error).message}`);
-                } finally {
-                    setIsUpdating(false);
-                }
-            } else if (!poId) {
-                console.error("Cannot update checklist: PO ID is missing from row data.");
-            } else if (!isSpvProp) {
-                 console.warn("Checklist change ignored: User is not SPV.");
-            }
-        };
-
-        return (
-            <Checkbox
-                checked={isChecked}
-                aria-label="Checklist status"
-                disabled={!isSpvProp || isUpdating} // Use isSpvProp prop
-                onCheckedChange={handleCheckedChange}
-            />
-        );
+    // Define cell component for Checklist - Read-only display
+    const ChecklistCell = ({ row }: { row: any }) => {
+        const checkedValue = row.getValue("Checklist");
+        let displayValue = "-";
+        if (typeof checkedValue === 'boolean') {
+            displayValue = checkedValue ? "✓" : "✗";
+        }
+        // Apply color based on value for better visual distinction
+        const textColor = checkedValue === true ? "text-green-600" : checkedValue === false ? "text-red-600" : "text-gray-500";
+        return <div className={`text-center font-semibold ${textColor}`}>{displayValue}</div>;
     };
 
-    // Define cell component for Keterangan to use hooks and manage its state
+    // Define cell component for Keterangan - Read-only display
     const KeteranganCell = ({ row }: { row: any }) => {
-        const { token } = useAuth();
-        const initialKeterangan = row.getValue("Keterangan") || "";
-        const [keterangan, setKeterangan] = useState(initialKeterangan);
-        const [isUpdating, setIsUpdating] = useState(false);
-        const [debounceTimeout, setDebounceTimeout] = useState<NodeJS.Timeout | null>(null);
-
-        useEffect(() => {
-            // Update local state if the row data changes externally
-            setKeterangan(row.getValue("Keterangan") || "");
-        }, [row.getValue("Keterangan")]);
-
-        const handleKeteranganChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-            const newValue = event.target.value;
-            setKeterangan(newValue);
-
-            if (debounceTimeout) {
-                clearTimeout(debounceTimeout);
-            }
-
-            if (currentUserRole?.toLowerCase() === 'spv' && token) {
-                const timeout = setTimeout(async () => {
-                    setIsUpdating(true);
-                    try {
-                        // Ensure row.original.id exists before calling API
-                        const poIdForKeterangan = row.original?.id;
-                        if (!poIdForKeterangan) {
-                             console.error("Cannot update Keterangan: PO ID is missing.");
-                             alert("Error: Cannot update Keterangan, item ID is missing.");
-                             // Optionally revert keterangan state here
-                             setIsUpdating(false);
-                             return;
-                        }
-                        await updatePOKeterangan(poIdForKeterangan, newValue, token);
-                        console.log(`Keterangan for PO ID ${poIdForKeterangan} updated to ${newValue}`);
-                    } catch (error) {
-                        console.error(`Failed to update Keterangan for PO ID ${row.original?.id}:`, error);
-                        alert(`Error updating Keterangan: ${(error as Error).message}`);
-                    } finally {
-                        setIsUpdating(false);
-                    }
-                }, 1000); // Debounce time: 1 second
-                setDebounceTimeout(timeout);
-            }
-        };
-
-        return (
-            <Input
-                value={keterangan}
-                onChange={handleKeteranganChange}
-                disabled={currentUserRole?.toLowerCase() !== 'spv' || isUpdating}
-                placeholder="Add notes..."
-                className="max-w-[200px]"
-            />
-        );
+        const keteranganValue = row.getValue("Keterangan") as string;
+        return <div className="text-sm text-gray-700 dark:text-gray-300 truncate max-w-xs">{keteranganValue || "-"}</div>;
 
     };
 
     return [
         {
-            id: "select",
-            header: ({ table }) => (
-                <Checkbox
-                    checked={
-                        table.getIsAllPageRowsSelected() ||
-                        (table.getIsSomePageRowsSelected() && "indeterminate")
-                    }
-                    onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-                    aria-label="Select all"
-                    className="translate-y-[2px]"
-                />
-            ),
-            cell: ({ row }) => (
-                <Checkbox
-                    checked={row.getIsSelected()}
-                    onCheckedChange={(value) => row.toggleSelected(!!value)}
-                    aria-label="Select row"
-                    className="translate-y-[2px]"
-                />
-            ),
-            enableSorting: false,
-            enableHiding: false,
-        },
-        {
-            accessorKey: "PO_No",
+            accessorKey: "PO_NO",
             header: ({ column }) => (
                 <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
                     PO Number <ArrowUpDown className="ml-2 h-4 w-4" />
                 </Button>
             ),
-            cell: ({ row }) => <div className="font-medium">{row.getValue("PO_No") || "-"}</div>,
+            cell: ({ row }) => <div className="font-medium">{row.getValue("PO_NO") || "-"}</div>,
         },
         {
             accessorKey: "TGL_PO",
@@ -281,8 +173,7 @@ export const getItemColumns = (currentUserRole: string | undefined): ColumnDef<F
                     <ArrowUpDown className="ml-2 h-4 w-4" />
                 </Button>
             ),
-            // Pass the calculated isSpv from getItemColumns scope as a prop
-            cell: ({ row }) => <ChecklistCell row={row} isSpvProp={isSpv} />,
+            cell: ChecklistCell,
             enableSorting: true,
             enableHiding: true,
         },
@@ -344,10 +235,12 @@ export const getItemColumns = (currentUserRole: string | undefined): ColumnDef<F
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                             <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                            <DropdownMenuItem onClick={() => navigator.clipboard.writeText(item.PO_No || "")}>
+                            <DropdownMenuItem onClick={() => navigator.clipboard.writeText(item.PO_NO || "")}>
                                 Copy PO Number
                             </DropdownMenuItem>
-                            {/* Add more actions later, e.g., edit checklist/keterangan */}
+                            <DropdownMenuItem onClick={() => onShowDetails(item)}>
+                                View PO Details
+                            </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
                 );
