@@ -11,7 +11,7 @@ interface FetchPOParams {
     // month_filter?: number;
 }
 
-export async function fetchPurchaseOrders(params: FetchPOParams = {}): Promise<PurchaseOrder[]> {
+export async function fetchPurchaseOrders(token: string, params: FetchPOParams = {}): Promise<PurchaseOrder[]> {
     const { page = 1, limit = 10, search } = params;
     const queryParams = new URLSearchParams({
         skip: ((page - 1) * limit).toString(),
@@ -25,7 +25,13 @@ export async function fetchPurchaseOrders(params: FetchPOParams = {}): Promise<P
 
     try {
         console.log(`Fetching POs from: ${API_BASE_URL}/purchase-orders?${queryParams.toString()}`);
-        const response = await fetch(`${API_BASE_URL}/purchase-orders?${queryParams.toString()}`);
+        const response = await fetch(`${API_BASE_URL}/purchase-orders?${queryParams.toString()}`, {
+            method: "GET",
+            headers: {
+                "Authorization": `Bearer ${token}`,
+                "Content-Type": "application/json"
+            }
+        });
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({ detail: "Unknown error fetching POs" }));

@@ -9,4 +9,8 @@
 [x] perbaiki ETL (get data dari API dan store ke database) biar bisa tarik data dari beberapa bulan
 [x] Switch ETL Pakai API biar bisa run ETL tanpa wifi PT
 [x] Buat trigger api AI untuk classificationnya otomatis ketika run ETL
-[x]  
+[ ] Perbaiki UInya agar pakai side bar
+[ ] Buat User harus login terlebih dahulu 
+[ ] Tambahan tombol sync agar bisa di sync manual by user di pojok kanan bawah 
+[ ] Tambahkan dropdown untuk company di manual ETL
+[ ] Buat Auto Pull API ketika malam Hari 

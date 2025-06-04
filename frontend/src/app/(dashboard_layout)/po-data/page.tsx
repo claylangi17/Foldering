@@ -5,8 +5,10 @@ import * as React from "react";
 import { DataTable } from "@/components/custom/data-table";
 import { columns, PurchaseOrder } from "./columns";
 import { fetchPurchaseOrders } from "@/lib/api"; // Use the actual API function
+import { useAuth } from "@/context/AuthContext";
 
 export default function PODataPage() {
+    const { token } = useAuth();
     const [data, setData] = React.useState<PurchaseOrder[]>([]);
     const [isLoading, setIsLoading] = React.useState(true);
     const [error, setError] = React.useState<string | null>(null);
@@ -16,11 +18,16 @@ export default function PODataPage() {
 
     React.useEffect(() => {
         async function loadData() {
+            if (!token) {
+                setError("Authentication token not found. Please log in.");
+                setIsLoading(false);
+                return;
+            }
             setIsLoading(true);
             setError(null);
             try {
                 // Example: Fetch first page, 10 items
-                const fetchedData = await fetchPurchaseOrders({ page: 1, limit: 10 });
+                const fetchedData = await fetchPurchaseOrders(token, { page: 1, limit: 10 });
                 setData(fetchedData);
             } catch (err: any) {
                 console.error("Failed to load PO data:", err);
@@ -30,7 +37,7 @@ export default function PODataPage() {
             }
         }
         loadData();
-    }, []); // Add dependencies if pagination/filters are added, e.g., [pagination.pageIndex, pagination.pageSize]
+    }, [token]); // Re-fetch if token changes
 
     if (isLoading) {
         return <div className="container mx-auto py-10 text-center"><p>Loading Purchase Order Data...</p></div>;
