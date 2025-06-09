@@ -19,6 +19,7 @@ interface AuthContextType {
     isLoading: boolean; // To handle initial auth state loading
     companiesList: Company[] | null;
     getCompanyName: (companyCode: number) => string | undefined;
+    updateUserContext: (updatedUserData: Partial<UserResponse>) => void; // Added for profile updates
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -124,8 +125,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return company?.name;
     };
 
+    const updateUserContext = (updatedUserData: Partial<UserResponse>) => {
+        setUser(prevUser => prevUser ? { ...prevUser, ...updatedUserData } : null);
+    };
+
     return (
-        <AuthContext.Provider value={{ isAuthenticated, user, token, login, logout, isLoading, companiesList, getCompanyName }}>
+        <AuthContext.Provider value={{ isAuthenticated, user, token, login, logout, isLoading, companiesList, getCompanyName, updateUserContext }}>
             {children}
         </AuthContext.Provider>
     );

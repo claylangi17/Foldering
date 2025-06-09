@@ -1,10 +1,11 @@
-from ..core.dependencies import get_current_active_user  # Import the dependency
+from ..core.dependencies import get_current_active_user, get_current_active_spv_user # Import the dependency
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from datetime import timedelta
 
-from ..schemas import user_schemas  # Token and TokenData are in user_schemas
-from ..services import auth_service
+from ..schemas import user_schemas # Token and TokenData are in user_schemas
+from ..schemas.user_schemas import UserCompanyUpdate # Import the new schema
+from ..services import auth_service, user_service # Import the new service
 from ..core import security
 
 router = APIRouter(
@@ -79,3 +80,24 @@ async def read_users_me(current_user: user_schemas.UserInDB = Depends(get_curren
     # Pydantic will automatically convert it to User schema for the response,
     # which excludes hashed_password.
     return current_user
+
+
+@router.put("/users/me/company", response_model=user_schemas.User)
+async def update_current_user_company(
+    company_update_data: UserCompanyUpdate,
+    current_spv_user: user_schemas.UserInDB = Depends(get_current_active_spv_user) # Use SPV dependency
+):
+    """
+    Update the company for the currently authenticated SPV user.
+    """
+    updated_user = user_service.update_user_company(
+        user_id=current_spv_user.id,
+        new_company_code=company_update_data.new_company_code
+    )
+    if not updated_user:
+        # Consider if 404 is always right, or if 400 for invalid company_code, or 500 for DB error
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Failed to update user company. User not found, invalid company code, or company already set."
+        )
+    return updated_user

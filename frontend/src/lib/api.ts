@@ -440,6 +440,24 @@ export async function fetchCompanies(): Promise<Company[]> {
     }
 }
 
+export async function updateUserCompany(token: string, newCompanyCode: number): Promise<UserResponse> {
+    const response = await fetch(`${API_BASE_URL}/auth/users/me/company`, { // Ensure this matches the FastAPI endpoint
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ new_company_code: newCompanyCode }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      console.error("API Error updating company:", response.status, result);
+      throw new Error(result.detail || 'Failed to update user company');
+    }
+    return result as UserResponse;
+}
+
+
 export async function updatePOChecklist(poId: number, checklistStatus: boolean, token: string): Promise<FrontendItemInLayer> {
     if (poId === undefined || poId === null) {
         const errorMessage = "PO ID is missing. Cannot update checklist.";

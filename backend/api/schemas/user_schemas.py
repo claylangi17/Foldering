@@ -15,6 +15,11 @@ class UserCreate(UserBase):
     password: str = Field(..., min_length=6)
 
 
+# Add this new schema
+class UserCompanyUpdate(BaseModel):
+    new_company_code: int
+
+
 class UserInDBBase(UserBase):
     id: int
     role: str = Field(default="user")  # Default role is 'user'
