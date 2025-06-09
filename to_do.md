@@ -16,5 +16,6 @@
 [x] Buat dalam view card
 [x] Revise all UI  
 [x] Profile Page 
+[ ] SPV can switch company and see all company data 
 
 
