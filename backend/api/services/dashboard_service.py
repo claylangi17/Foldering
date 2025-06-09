@@ -55,12 +55,24 @@ def get_mini_dashboard_data() -> MiniDashboardData:
         total_l2_result = cursor.fetchone()
         total_l2_categories = total_l2_result['total_l2'] if total_l2_result else 0
 
+        # 5. Number of Pending POs
+        cursor.execute("SELECT COUNT(*) as total_pending FROM purchase_orders WHERE PO_Status = 'Pending'")
+        pending_pos_result = cursor.fetchone()
+        pending_pos = pending_pos_result['total_pending'] if pending_pos_result else 0
+
+        # 6. Number of Completed POs
+        cursor.execute("SELECT COUNT(*) as total_completed FROM purchase_orders WHERE PO_Status = 'Completed'")
+        completed_pos_result = cursor.fetchone()
+        completed_pos = completed_pos_result['total_completed'] if completed_pos_result else 0
+
         dashboard_data = MiniDashboardData(
             total_purchase_orders=total_purchase_orders,
             total_order_amount_idr=float(
                 total_order_amount_idr),  # Ensure float
             total_l1_categories=total_l1_categories,
-            total_l2_categories=total_l2_categories
+            total_l2_categories=total_l2_categories,
+            pending_pos=pending_pos,
+            completed_pos=completed_pos
         )
 
         logger.info(f"Fetched dashboard data: {dashboard_data}")
@@ -73,7 +85,9 @@ def get_mini_dashboard_data() -> MiniDashboardData:
             total_purchase_orders=0,
             total_order_amount_idr=0.0,
             total_l1_categories=0,
-            total_l2_categories=0
+            total_l2_categories=0,
+            pending_pos=0,
+            completed_pos=0
         )
     finally:
         if conn and conn.is_connected():

@@ -4,7 +4,13 @@ import { ColumnDef } from "@tanstack/react-table";
 import { ArrowUpDown, MoreHorizontal } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox"; // Assuming we'll use this for row selection
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"; // Assuming we'll use this for row selection
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -19,15 +25,17 @@ import {
 // For now, using a generic structure based on mock data and requirements.
 export type PurchaseOrder = {
     id: string | number; // Assuming 'id' is the unique identifier from your DB for the PO row
-    PO_No: string;
+    PO_NO: string; // Changed from PO_No to PO_NO to match API response key
     TGL_PO: string | Date; // Or Date if parsed
-    ITEM_NAME: string; // Or ITEM_DESC
+    ITEM?: string; // From backend schema
+    ITEM_DESC?: string; // From backend schema, preferred for display
     QTY_ORDER: number;
     Supplier_Name?: string;
-    IDR_PRICE?: number;
+    Original_PRICE?: number; // Changed from IDR_PRICE to match DB/Pydantic schema
     UNIT?: string;
     PR_Date?: string | Date;
-    PR_Ref_A?: string;
+    PR_No?: string; // Added to match DB/Pydantic schema for PR Number column
+    PR_Ref_A?: string; // Kept if used elsewhere, but PR_No is primary for the column
     PR_Ref_B?: string;
     Term_Payment?: string;
     RECEIVED_DATE?: string | Date;
@@ -36,34 +44,13 @@ export type PurchaseOrder = {
     Total_Cumulative_IDR_Amount?: number;
     Checklist: boolean;
     Keterangan: string;
+    PO_Status?: string; // Added PO Status
     // Add other fields from your PO data as needed
 };
 
 export const columns: ColumnDef<PurchaseOrder>[] = [
     {
-        id: "select",
-        header: ({ table }: { table: any }) => (
-            <Checkbox
-                checked={
-                    table.getIsAllPageRowsSelected() ||
-                    (table.getIsSomePageRowsSelected() && "indeterminate")
-                }
-                onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-                aria-label="Select all"
-            />
-        ),
-        cell: ({ row }: { row: any }) => (
-            <Checkbox
-                checked={row.getIsSelected()}
-                onCheckedChange={(value) => row.toggleSelected(!!value)}
-                aria-label="Select row"
-            />
-        ),
-        enableSorting: false,
-        enableHiding: false,
-    },
-    {
-        accessorKey: "PO_No",
+        accessorKey: "PO_NO", // Changed from PO_No to PO_NO to match API response key
         header: ({ column }: { column: any }) => {
             return (
                 <Button
@@ -97,8 +84,8 @@ export const columns: ColumnDef<PurchaseOrder>[] = [
         },
     },
     {
-        accessorKey: "ITEM_NAME", // Or ITEM_DESC
-        header: "Item Name",
+        accessorKey: "ITEM_DESC", // Changed from ITEM_NAME to match backend schema (ITEM_DESC or ITEM)
+        header: "Item Description", // Updated header for clarity
     },
     {
         accessorKey: "QTY_ORDER",
@@ -131,11 +118,52 @@ export const columns: ColumnDef<PurchaseOrder>[] = [
     {
         accessorKey: "Keterangan",
         header: "Keterangan",
-        // Potentially make this cell editable or show a snippet with a modal for full text
-        cell: ({ row }: { row: any }) => <div className="truncate max-w-xs">{row.getValue("Keterangan") || "-"}</div>,
+        cell: ({ row }: { row: any }) => {
+            const keterangan = row.original.Keterangan;
+            return keterangan ? (
+                <TooltipProvider delayDuration={100}>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <span className="cursor-pointer flex items-center justify-center">
+                                <MoreHorizontal className="h-5 w-5 text-muted-foreground" />
+                            </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-xs bg-background text-foreground border shadow-lg rounded-md p-2 break-words">
+                            <p>{keterangan}</p>
+                        </TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
+            ) : (
+                <span className="flex items-center justify-center">-</span>
+            );
+        },
+    },
+    {
+        accessorKey: "PR_No", // Changed from PR_Ref_A to match DB/Pydantic schema
+        header: "PR Number",
+    },
+    {
+        accessorKey: "Original_PRICE", // Changed from IDR_PRICE to match DB/Pydantic schema
+        header: "Unit Price (IDR)",
+        cell: ({ row }: { row: any }) => {
+            const amount = parseFloat(row.getValue("Original_PRICE") || "0"); // Changed from IDR_PRICE
+            const formatted = new Intl.NumberFormat("id-ID", {
+                style: "currency",
+                currency: "IDR",
+            }).format(amount);
+            return <div className="text-right font-medium">{formatted}</div>;
+        },
+    },
+    {
+        accessorKey: "UNIT",
+        header: "Unit",
+    },
+    {
+        accessorKey: "PO_Status",
+        header: "PO Status",
     },
     // Add more columns for:
-    // PR_No, IDR_PRICE, UNIT, PR Date, PR Ref-A, PR Ref-B, Term_Payment, RECEIVED_DATE
+    // PR_Date, PR_Ref_B, Term_Payment, RECEIVED_DATE
     // Total_Cumulative_QTY_Order, Total_Cumulative_IDR_Amount
     {
         id: "actions",
@@ -152,13 +180,17 @@ export const columns: ColumnDef<PurchaseOrder>[] = [
                     <DropdownMenuContent align="end">
                         <DropdownMenuLabel>Actions</DropdownMenuLabel>
                         <DropdownMenuItem
-                            onClick={() => navigator.clipboard.writeText(po.PO_No)}
+                            onClick={() => navigator.clipboard.writeText(po.PO_NO)}
                         >
                             Copy PO Number
                         </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={() => row.original._showDetails?.()}
+                        >
+                            View PO Details
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem>View PO Details</DropdownMenuItem>
-                        <DropdownMenuItem>Edit PO (Checklist/Keterangan)</DropdownMenuItem>
+                        {/* <DropdownMenuItem>Edit PO (Checklist/Keterangan)</DropdownMenuItem> */}
                         {/* Add more actions as needed */}
                     </DropdownMenuContent>
                 </DropdownMenu>

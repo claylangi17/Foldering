@@ -1,6 +1,30 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict
+from datetime import datetime # Added import
 from .po_schemas import PurchaseOrderBase  # Import PurchaseOrderBase
+
+# Schemas for item_classifications table
+
+class ItemClassificationBase(BaseModel):
+    item_po_id: Optional[int] = None
+    item_description: Optional[str] = None
+    cluster_label: Optional[str] = None
+    layer_name: Optional[str] = None
+    company_code: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+class ItemClassificationCreate(ItemClassificationBase):
+    item_description: str
+    company_code: int
+    # item_po_id, cluster_label, and layer_name are optional at creation via this schema,
+    # they might be populated by other processes or if known.
+
+class ItemClassification(ItemClassificationBase):
+    id: int
+    created_at: datetime
+
 
 # Schema for representing a single classification category/node within a layer
 
@@ -14,6 +38,7 @@ class LayerNode(BaseModel):
     level: int = Field(..., example=1, ge=1, le=2)
     # Number of items in this category
     item_count: Optional[int] = Field(None, example=150)
+    total_po_count: Optional[int] = Field(None, description="Total number of POs under this layer, including all descendants", example=500)
     # ID of the parent node in the hierarchy
     parent_id: Optional[str] = Field(None, example="L0_Root_Or_Null")
 

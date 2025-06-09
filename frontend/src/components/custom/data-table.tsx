@@ -12,6 +12,7 @@ import {
     getPaginationRowModel,
     getSortedRowModel,
     useReactTable,
+    PaginationState, // Import PaginationState
 } from "@tanstack/react-table";
 
 import {
@@ -34,40 +35,84 @@ import {
 interface DataTableProps<TData, TValue> {
     columns: ColumnDef<TData, TValue>[];
     data: TData[];
-    // We can add more props for search, filtering, etc. later
-    // globalFilter?: string;
-    // setGlobalFilter?: (value: string) => void;
+    // Props for server-side pagination
+    pageCount?: number; // Total number of pages
+    pagination?: PaginationState; // Current pagination state { pageIndex, pageSize }
+    onPaginationChange?: (updater: PaginationState | ((old: PaginationState) => PaginationState)) => void; // Callback to update pagination state
+    manualPagination?: boolean; // Flag to enable manual pagination
+    // Props for server-side global search
+    globalFilter?: string; // Controlled global filter value
+    onGlobalFilterChange?: (value: string) => void; // Handler for global filter changes
+    totalDataCount?: number; // Total number of items from the database
+    manualGlobalFilter?: boolean;
+    enableRowSelection?: boolean;
+    onRowSelectionChange?: (updater: any) => void;
+    initialColumnVisibility?: VisibilityState;
 }
 
 export function DataTable<TData, TValue>({
     columns,
     data,
+    manualPagination = false, // Default to client-side pagination
+    pagination: controlledPagination, // Renamed to avoid conflict
+    onPaginationChange: controlledOnPaginationChange,
+    pageCount: controlledPageCount,
+    manualGlobalFilter = false,
+    globalFilter: controlledGlobalFilter,
+    onGlobalFilterChange: controlledOnGlobalFilterChange,
+    enableRowSelection = false, // Default to false
+    onRowSelectionChange: externalOnRowSelectionChange,
+    initialColumnVisibility = {},
+    totalDataCount, // Added totalDataCount to destructuring
 }: DataTableProps<TData, TValue>) {
     const [sorting, setSorting] = React.useState<SortingState>([]);
     const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
-    const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
+    const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(initialColumnVisibility);
     const [rowSelection, setRowSelection] = React.useState({});
-    const [globalFilter, setGlobalFilter] = React.useState(''); // For global search
+
+    // Internal state for global filter, used if external control is not provided
+    const [internalGlobalFilter, setInternalGlobalFilter] = React.useState('');
+
+    // Determine global filter state and handler
+    const globalFilter = manualGlobalFilter ? controlledGlobalFilter : internalGlobalFilter;
+    const setGlobalFilter = manualGlobalFilter ? controlledOnGlobalFilterChange : setInternalGlobalFilter;
 
     const table = useReactTable({
         data,
         columns,
-        getCoreRowModel: getCoreRowModel(),
-        getPaginationRowModel: getPaginationRowModel(),
-        onSortingChange: setSorting,
-        getSortedRowModel: getSortedRowModel(),
-        onColumnFiltersChange: setColumnFilters,
-        getFilteredRowModel: getFilteredRowModel(),
-        onColumnVisibilityChange: setColumnVisibility,
-        onRowSelectionChange: setRowSelection,
+        // For client-side pagination, provide initialState and let table manage it.
+        // For server-side, control it via state and onPaginationChange.
+        initialState: {
+            pagination: !manualPagination ? { pageIndex: 0, pageSize: 10 } : undefined,
+        },
         state: {
             sorting,
             columnFilters,
             columnVisibility,
             rowSelection,
             globalFilter,
+            // Only include pagination in state if it's manually controlled (server-side)
+            ...(manualPagination && { pagination: controlledPagination }),
         },
-        onGlobalFilterChange: setGlobalFilter, // For global search
+        onPaginationChange: manualPagination ? controlledOnPaginationChange : undefined,
+        manualPagination: manualPagination,
+        pageCount: manualPagination ? controlledPageCount : undefined,
+
+        manualFiltering: manualGlobalFilter, // Tell react-table that global filtering is manual
+        
+        // Core models
+        getCoreRowModel: getCoreRowModel(),
+        getSortedRowModel: getSortedRowModel(), // For client-side sorting
+        // Conditionally provide getFilteredRowModel. If filtering is manual, table shouldn't use its own.
+        ...(!manualGlobalFilter && { getFilteredRowModel: getFilteredRowModel() }),
+        getPaginationRowModel: getPaginationRowModel(), // For client-side pagination if manualPagination is false
+
+        // Event handlers for controlled state
+        onSortingChange: setSorting,
+        onColumnFiltersChange: setColumnFilters,
+        onColumnVisibilityChange: setColumnVisibility,
+        onRowSelectionChange: enableRowSelection ? (externalOnRowSelectionChange || setRowSelection) : undefined,
+        onGlobalFilterChange: setGlobalFilter,
     });
 
     return (
@@ -77,7 +122,11 @@ export function DataTable<TData, TValue>({
                 <Input
                     placeholder="Search all columns..."
                     value={globalFilter ?? ""}
-                    onChange={(event) => setGlobalFilter(event.target.value)}
+                    onChange={(event) => {
+                        if (typeof setGlobalFilter === 'function') {
+                            setGlobalFilter(event.target.value);
+                        }
+                    }}
                     className="max-w-sm"
                 />
                 <DropdownMenu>
@@ -165,27 +214,44 @@ export function DataTable<TData, TValue>({
             </div>
 
             {/* Pagination Controls */}
-            <div className="flex items-center justify-end space-x-2 py-4">
-                <div className="flex-1 text-sm text-muted-foreground">
-                    {table.getFilteredSelectedRowModel().rows.length} of{" "}
-                    {table.getFilteredRowModel().rows.length} row(s) selected.
+            <div className="flex items-center justify-between py-4">
+                <div className="text-sm text-muted-foreground">
+                    {enableRowSelection && (
+                        <>
+                            {table.getFilteredSelectedRowModel().rows.length} of{" "}
+                            {table.getFilteredRowModel().rows.length} row(s) selected.
+                        </>
+                    )}
+                    {/* Always show total items if available and pagination is manual, regardless of row selection status */}
+                    {typeof totalDataCount === 'number' && manualPagination && (
+                        <span className={enableRowSelection ? "ml-2" : ""}> {/* Adjust margin if selection text is hidden */}
+                            (Total: {totalDataCount} items)
+                        </span>
+                    )}
                 </div>
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => table.previousPage()}
-                    disabled={!table.getCanPreviousPage()}
-                >
-                    Previous
-                </Button>
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => table.nextPage()}
-                    disabled={!table.getCanNextPage()}
-                >
-                    Next
-                </Button>
+                <div className="flex items-center space-x-2">
+                    {manualPagination && table.getPageCount() > 0 && table.getState().pagination && (
+                        <span className="text-sm text-muted-foreground">
+                            Page {table.getState().pagination!.pageIndex + 1} of {table.getPageCount()}
+                        </span>
+                    )}
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => table.previousPage()}
+                        disabled={!table.getCanPreviousPage()}
+                    >
+                        Previous
+                    </Button>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => table.nextPage()}
+                        disabled={!table.getCanNextPage()}
+                    >
+                        Next
+                    </Button>
+                </div>
             </div>
         </div>
     );

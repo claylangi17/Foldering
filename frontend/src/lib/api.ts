@@ -5,27 +5,40 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 interface FetchPOParams {
     page?: number;
     limit?: number;
-    search?: string;
+    search_value?: string; // Renamed from 'search' for clarity, holds the search term
+    search_field?: string; // Specifies which field to search against (e.g., 'PO_NO', 'Keterangan')
     // Add other filter params as needed
     // layer_filter?: string;
     // month_filter?: number;
 }
 
-export async function fetchPurchaseOrders(params: FetchPOParams = {}): Promise<PurchaseOrder[]> {
-    const { page = 1, limit = 10, search } = params;
+export async function fetchPurchaseOrders(token: string, params: FetchPOParams = {}): Promise<{ items: PurchaseOrder[], total: number }> {
+    const { page = 1, limit = 10, search_value, search_field } = params;
     const queryParams = new URLSearchParams({
         skip: ((page - 1) * limit).toString(),
         limit: limit.toString(),
     });
 
-    if (search) {
-        queryParams.append("search", search);
+    if (search_value) {
+        if (search_field && search_field !== 'ALL') {
+            queryParams.append("search_field", search_field);
+            queryParams.append("search_value", search_value);
+        } else {
+            // If search_field is 'ALL' or not provided, use generic search
+            queryParams.append("search", search_value);
+        }
     }
     // Add other filters to queryParams if they exist
 
     try {
         console.log(`Fetching POs from: ${API_BASE_URL}/purchase-orders?${queryParams.toString()}`);
-        const response = await fetch(`${API_BASE_URL}/purchase-orders?${queryParams.toString()}`);
+        const response = await fetch(`${API_BASE_URL}/purchase-orders?${queryParams.toString()}`, {
+            method: "GET",
+            headers: {
+                "Authorization": `Bearer ${token}`,
+                "Content-Type": "application/json"
+            }
+        });
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({ detail: "Unknown error fetching POs" }));
@@ -33,18 +46,14 @@ export async function fetchPurchaseOrders(params: FetchPOParams = {}): Promise<P
             throw new Error(errorData.detail || `Failed to fetch purchase orders: ${response.statusText}`);
         }
 
-        const data: PurchaseOrder[] = await response.json();
+        const responseData = await response.json(); // Expect { items: [], total: 0 }
         // Ensure data matches the PurchaseOrder type, especially date fields
-        // The backend currently returns dates as strings if not processed by Pydantic into datetime objects
-        // and then back to strings in a specific format.
-        // For now, assuming the structure matches. May need transformation here.
-        return data.map(po => ({
+        const items = responseData.items.map((po: any) => ({
             ...po,
             // Example: Convert date strings to Date objects if necessary for client-side formatting/logic
             // TGL_PO: po.TGL_PO ? new Date(po.TGL_PO) : new Date(), 
-            // This depends on how backend serializes dates and how columns.tsx expects them.
-            // The current columns.tsx handles string or Date for TGL_PO.
         }));
+        return { items, total: responseData.total };
     } catch (error) {
         console.error("Error in fetchPurchaseOrders:", error);
         // In a real app, you might want to throw a more specific error or handle it differently
@@ -53,6 +62,11 @@ export async function fetchPurchaseOrders(params: FetchPOParams = {}): Promise<P
 }
 
 export async function updatePOKeterangan(poId: number, keterangan: string, token: string): Promise<FrontendItemInLayer> {
+    if (poId === undefined || poId === null) {
+        const errorMessage = "PO ID is missing. Cannot update keterangan.";
+        console.error("updatePOKeterangan validation error:", errorMessage);
+        throw new Error(errorMessage);
+    }
     try {
         const response = await fetch(`${API_BASE_URL}/purchase-orders/${poId}`, {
             method: "PUT",
@@ -64,12 +78,17 @@ export async function updatePOKeterangan(poId: number, keterangan: string, token
         });
         const result = await response.json();
         if (!response.ok) {
-            throw new Error(result.detail || `Failed to update Keterangan for PO ID ${poId}`);
+            const errorDetail = result.detail || `Failed to update Keterangan for PO ID ${poId}. Status: ${response.status}`;
+            throw new Error(errorDetail);
         }
         return result as FrontendItemInLayer;
     } catch (error) {
         console.error(`Error in updatePOKeterangan for PO ID ${poId}:`, error);
-        throw error;
+        if (error instanceof Error) {
+            throw error;
+        } else {
+            throw new Error(String(error) || `Unknown error updating Keterangan for PO ID ${poId}`);
+        }
     }
 }
 
@@ -125,7 +144,8 @@ export async function triggerEtlProcess(etlParams: any): Promise<any> {
 export interface FrontendLayerNode {
     id: string; // This is the layer_definition primary key
     name: string;
-    item_count: number;
+    item_count: number; // Number of direct sub-layers/sub-categories
+    total_po_count?: number; // Total number of POs under this layer (including descendants)
     level: number; // 1, 2, or 3
     parent_id?: string | null; // This is the parent layer_definition primary key
 }
@@ -137,37 +157,57 @@ export interface FrontendLayerHierarchyResponse {
 }
 
 export interface FrontendItemInLayer {
-    // These should match the fields in api/schemas/po_schemas.py PurchaseOrder model
-    id: number; // Will be stringified by service if needed, but keep as number if that's the true type
-    PO_No?: string | null;
-    ITEM?: string | null;
-    ITEM_DESC?: string | null;
-    Supplier_Name?: string | null;
-    QTY_ORDER?: number | null;
-    Original_PRICE?: number | null;
-    Currency?: string | null;
-    TGL_PO?: string | null; // Pydantic will serialize datetime to ISO string
-    // Add other fields from the user's list that are in PurchaseOrderBase
-    PR_No?: string | null;
-    UNIT?: string | null;
-    PR_Date?: string | null;
-    PR_Ref_A?: string | null;
-    PR_Ref_B?: string | null;
-    Term_Payment_at_PO?: string | null;
-    RECEIVED_DATE?: string | null;
-    Sum_of_Order_Amount_IDR?: number | null;
-    // Global cumulative fields from ETL (if still needed/used)
-    Total_Cumulative_QTY_Order?: number | null;
-    Total_Cumulative_IDR_Amount?: number | null;
-    // New per-item cumulative fields
-    Cumulative_Item_QTY?: number | null;
-    Cumulative_Item_Amount_IDR?: number | null;
-    // Checklist and Keterangan are also part of PurchaseOrderBase
-    Checklist?: boolean | null;
-    Keterangan?: string | null;
+  id: number; // This should be the PO's primary key from the database (purchase_orders.id)
+  Checklist: boolean;
+  Keterangan: string | null;
+  
+  // Core PO Fields from database schema
+  PO_NO?: string; // Changed from PO_No to PO_NO
+  TGL_PO?: string; // Date as string, maps to TGL_PO (datetime)
+  ITEM?: string; // Item code/identifier, maps to ITEM (text)
+  ITEM_DESC?: string; // maps to ITEM_DESC (text)
+  QTY_ORDER?: number; // maps to QTY_ORDER (double)
+  UNIT?: string; // maps to UNIT (text)
+  Original_PRICE?: number; // maps to Original_PRICE (double)
+  Currency?: string; // maps to Currency (text)
+  Order_Amount_IDR?: string; // Individual item amount, maps to Order_Amount_IDR (double), store as string for display
+  Supplier_Name?: string; // maps to Supplier_Name (text)
+  company_code?: string; // maps to company_code (int), ensure consistency if using string
+  
+  // Purchase Requisition (PR) Fields
+  PR_No?: string; // maps to PR_No (text)
+  PR_Date?: string; // Date as string, maps to PR_Date (datetime)
+  PR_Ref_A?: string; // maps to PR_Ref_A (text)
+  PR_Ref_B?: string; // maps to PR_Ref_B (text)
+  
+  // PO Status and Terms
+  Term_Payment_at_PO?: string; // maps to Term_Payment_at_PO (text)
+  RECEIVED_DATE?: string; // Date as string, maps to RECEIVED_DATE (datetime)
+  PO_Status?: string; // maps to PO_Status (text)
+  
+  // Summaries and Cumulative Values
+  Sum_of_Order_Amount_IDR?: string; // Total order amount for this PO/Item, maps to Sum_of_Order_Amount_IDR (double)
+  Cumulative_Item_QTY?: number; // maps to Cumulative_Item_QTY (double)
+  Cumulative_Item_Amount_IDR?: string; // maps to Cumulative_Item_Amount_IDR (double)
+  Total_Cumulative_QTY_Order?: number; // maps to Total_Cumulative_QTY_Order (double)
+  Total_Cumulative_IDR_Amount?: string; // maps to Total_Cumulative_IDR_Amount (double)
+
+  // Fields potentially from other sources or calculations (review if needed)
+  PPN_Amount?: number;
+  PPH_Amount?: number;
+
+  // Internal frontend fields
+  db_id: number; // Potentially redundant if 'id' is the PO's DB PK. Review usage. Kept for now.
+  layer_definition_pk: number; // Specific to layer context
+  _showDetails?: () => void; // UI Helper
+
+  // Aliases if used by other parts of frontend, prefer direct mapping above
+  // UOM?: string; // Alias for UNIT
+  // QTY?: number; // Alias for QTY_ORDER
 }
 
-export async function fetchLayerData(slugParts: string[]): Promise<FrontendLayerHierarchyResponse> {
+export async function fetchLayerData(slugParts: string[], token: string): Promise<FrontendLayerHierarchyResponse> {
+    console.log(`api.ts: fetchLayerData - ENTER - slug: ${slugParts.join('/')}, token: ${token ? token.substring(0,10)+'...' : 'null'}`);
     if (!slugParts || slugParts.length === 0) {
         console.error("fetchLayerData: slugParts cannot be empty.");
         return { parent_name: null, layers: [] }; // Return default structure
@@ -175,8 +215,12 @@ export async function fetchLayerData(slugParts: string[]): Promise<FrontendLayer
     const slug = slugParts.join('/');
     try {
         const url = `${API_BASE_URL}/classification/layers/${slug}`;
-        console.log(`Fetching Layer Data from: ${url}`);
-        const response = await fetch(url);
+        console.log(`api.ts: fetchLayerData - ABOUT TO FETCH from ${url}. Token for Authorization header: ${token ? token.substring(0,10)+'...' : 'null'}`);
+        const response = await fetch(url, {
+            headers: {
+                "Authorization": `Bearer ${token}`,
+            },
+        });
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({ detail: "Unknown error fetching layer data" }));
@@ -199,7 +243,8 @@ export interface LayerItemsResponse {
     items: FrontendItemInLayer[];
 }
 
-export async function fetchItemsForLayerDefinitionPk(layerDefinitionPk: number): Promise<LayerItemsResponse> {
+export async function fetchItemsForLayerDefinitionPk(layerDefinitionPk: number, token: string): Promise<LayerItemsResponse> {
+    console.log(`api.ts: fetchItemsForLayerDefinitionPk - ENTER - pk: ${layerDefinitionPk}, token: ${token ? token.substring(0,10)+'...' : 'null'}`);
     if (layerDefinitionPk <= 0) {
         console.error("fetchItemsForLayerDefinitionPk: layerDefinitionPk must be a positive number.");
         // Return a default structure that matches LayerItemsResponse
@@ -208,7 +253,12 @@ export async function fetchItemsForLayerDefinitionPk(layerDefinitionPk: number):
     try {
         const url = `${API_BASE_URL}/classification/item-details-by-layer-definition-pk/${layerDefinitionPk}`;
         console.log(`Fetching Items for Layer Definition PK from: ${url}`);
-        const response = await fetch(url);
+        console.log(`api.ts: fetchItemsForLayerDefinitionPk - ABOUT TO FETCH from ${url}. Token for Authorization header: ${token ? token.substring(0,10)+'...' : 'null'}`);
+    const response = await fetch(url, {
+            headers: {
+                "Authorization": `Bearer ${token}`,
+            },
+        });
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({ detail: "Unknown error fetching items for layer definition pk" }));
@@ -282,24 +332,25 @@ export interface UserCreateData {
     full_name?: string | null;
     password_to_hash: string; // Field name expected by UserCreate schema if password is the key
     // Actually, UserCreate schema expects 'password'. Let's match that.
-    // password: string; 
 }
+
 // Re-aligning with UserCreate schema from backend (api/schemas/user_schemas.py)
 // UserCreate(UserBase): password: str
-// UserBase: username, email, full_name, disabled
+// UserBase: username, email, full_name, company_code, disabled
 export interface FrontendUserCreateData {
     username: string;
     email?: string | null;
     full_name?: string | null;
+    company_code?: number | null;
     password: string;
 }
-
 
 export interface UserResponse { // Corresponds to User schema in backend
     id: number;
     username: string;
     email?: string | null;
     full_name?: string | null;
+    company_code?: number | null;
     role: string;
     disabled?: boolean | null;
 }
@@ -370,7 +421,31 @@ export async function fetchCurrentUser(token: string): Promise<UserResponse> {
     }
 }
 
+export interface Company {
+    company_code: number;
+    name: string;
+}
+
+export async function fetchCompanies(): Promise<Company[]> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/companies`);
+        const result = await response.json();
+        if (!response.ok) {
+            throw new Error(result.detail || "Failed to fetch companies");
+        }
+        return result as Company[];
+    } catch (error) {
+        console.error("Error in fetchCompanies:", error);
+        throw error;
+    }
+}
+
 export async function updatePOChecklist(poId: number, checklistStatus: boolean, token: string): Promise<FrontendItemInLayer> {
+    if (poId === undefined || poId === null) {
+        const errorMessage = "PO ID is missing. Cannot update checklist.";
+        console.error("updatePOChecklist validation error:", errorMessage);
+        throw new Error(errorMessage);
+    }
     try {
         const response = await fetch(`${API_BASE_URL}/purchase-orders/${poId}`, {
             method: "PUT",
@@ -382,11 +457,16 @@ export async function updatePOChecklist(poId: number, checklistStatus: boolean, 
         });
         const result = await response.json();
         if (!response.ok) {
-            throw new Error(result.detail || `Failed to update checklist for PO ID ${poId}`);
+            const errorDetail = result.detail || `Failed to update checklist for PO ID ${poId}. Status: ${response.status}`;
+            throw new Error(errorDetail);
         }
         return result as FrontendItemInLayer; // Assuming the backend returns the updated PO item
     } catch (error) {
         console.error(`Error in updatePOChecklist for PO ID ${poId}:`, error);
-        throw error;
+        if (error instanceof Error) {
+            throw error;
+        } else {
+            throw new Error(String(error) || `Unknown error updating checklist for PO ID ${poId}`);
+        }
     }
 }

@@ -49,7 +49,7 @@ async def get_current_active_user(current_user: user_schemas.UserInDB = Depends(
 
 
 async def get_current_active_spv_user(current_user: user_schemas.UserInDB = Depends(get_current_active_user)) -> user_schemas.UserInDB:
-    if current_user.role != "spv":  # Assuming 'spv' is the role name
+    if not current_user.role or current_user.role.lower() != "spv":  # Case-insensitive check
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="The user doesn't have enough privileges (SPV role required)",

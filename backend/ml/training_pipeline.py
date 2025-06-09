@@ -1,19 +1,18 @@
 # Using the centralized DB connection
-from api.db.database import get_mysql_connection
-import pandas as pd
-# from sentence_transformers import SentenceTransformer # No longer needed for folder structure
-# from sklearn.cluster import KMeans # No longer needed
-# import joblib  # For saving/loading sklearn models # No longer needed
 import os
 import sys
 import re  # Added for regex parsing
 from dotenv import load_dotenv
+import pandas as pd
 
 # Add project root to sys.path to allow sibling imports (api.db.database)
 current_dir_ml = os.path.dirname(os.path.abspath(__file__))
 # This should be the project_root
 project_root_ml = os.path.dirname(current_dir_ml)
 sys.path.append(project_root_ml)
+
+# Import after adjusting path
+from api.db.database import get_mysql_connection
 
 
 # Load environment variables, override ensures it re-reads if already loaded elsewhere
@@ -28,7 +27,7 @@ load_dotenv(override=True)
 # --- Database Interaction ---
 
 
-def fetch_item_data_for_ml() -> pd.DataFrame:
+def fetch_item_data_for_ml(company_code=None) -> pd.DataFrame:
     """
     Fetches item data (e.g., ID, ITEM_NAME, ITEM_DESC) from the purchase_orders table.
     We need a unique identifier for each distinct item if possible, or use PO id + item name.
@@ -49,15 +48,30 @@ def fetch_item_data_for_ml() -> pd.DataFrame:
     # Based on SQL Server output, these are 'ITEM' and 'ITEM_DESC'.
     # 'id' is the auto-incremented primary key we added to 'purchase_orders'.
 
-    query = "SELECT id, ITEM, ITEM_DESC FROM purchase_orders WHERE (ITEM IS NOT NULL AND TRIM(ITEM) != '') OR (ITEM_DESC IS NOT NULL AND TRIM(ITEM_DESC) != '')"
+    # Filter by company_code if provided
+    company_filter = " AND company_code = %s" if company_code else ""
+    query = f"SELECT id, ITEM, ITEM_DESC, company_code FROM purchase_orders WHERE ((ITEM IS NOT NULL AND TRIM(ITEM) != '') OR (ITEM_DESC IS NOT NULL AND TRIM(ITEM_DESC) != '')){company_filter}"
+    
+    # Ensure company_code is an integer to match INT field in database
+    if company_code:
+        try:
+            company_code = int(company_code)
+        except (ValueError, TypeError):
+            # If conversion fails, keep original value
+            print(f"Warning: Could not convert company_code '{company_code}' to integer")
     print(f"ML Pipeline: Executing query: {query}")
 
     df = pd.DataFrame()
     try:
         # Using pandas read_sql_query should be fine here as the query is simple.
         # The UserWarning about SQLAlchemy is a general pandas warning for DBAPI2 connections.
-        df = pd.read_sql_query(query, conn)
-        print(f"ML Pipeline: Fetched {len(df)} item records for training.")
+        if company_code:
+            print(f"ML Pipeline: Querying for company_code = '{company_code}' (type: {type(company_code)})")
+            df = pd.read_sql_query(query, conn, params=[company_code])
+            print(f"ML Pipeline: Fetched {len(df)} item records for company {company_code}.")
+        else:
+            df = pd.read_sql_query(query, conn)
+            print(f"ML Pipeline: Fetched {len(df)} item records for all companies.")
     except Exception as e:
         print(f"ML Pipeline: Error fetching item data: {e}")
         # If the error is "Unknown column 'ITEM_NAME' in 'field list'", it confirms the issue.
@@ -116,73 +130,99 @@ def fetch_item_data_for_ml() -> pd.DataFrame:
 # by more direct logic within the new run_training_pipeline.
 # For now, I will comment them out to avoid conflicts and redefine them as needed.
 
-def save_parsed_item_classifications(classifications_to_save: list):
+def save_parsed_item_classifications(classifications_to_save: list, company_code=None):
     """
     Saves parsed item classifications (L2 folder assignments) to the item_classifications table.
     Each entry in classifications_to_save is a dict:
     {'item_po_id': po_id, 'item_description': original_desc, 'cluster_label': l2_folder_name, 'layer_name': 'L2_Parsed_Folders'}
+    
+    Now uses an incremental approach to preserve existing data.
     """
     if not classifications_to_save:
-        print("No parsed classifications to save.")
+        print("ML Pipeline: No item classifications to save.")
         return
 
     conn = get_mysql_connection()
     if not conn:
-        print("ML Pipeline: Failed to connect to MySQL for saving parsed classifications.")
+        print("ML Pipeline: Failed to connect to MySQL for saving classifications.")
         return
+
     cursor = conn.cursor()
     table_name = "item_classifications"
 
-    # Clear ALL old data from item_classifications to ensure a fresh start with parsed data
+    # Check how many existing classifications we have
     try:
-        delete_query = f"DELETE FROM {table_name}"  # Deletes all rows
-        print(f"ML Pipeline: Deleting ALL old entries from '{table_name}'.")
-        cursor.execute(delete_query)
-        conn.commit()
-        print(
-            f"ML Pipeline: Deleted {cursor.rowcount} old entries from {table_name}.")
+        if company_code:
+            cursor.execute(f"SELECT COUNT(*) FROM {table_name} WHERE company_code = %s", (company_code,))
+        else:
+            cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+        existing_count = cursor.fetchone()[0]
+        print(f"ML Pipeline: Found {existing_count} existing item classifications.")
     except Exception as e:
-        print(
-            f"ML Pipeline: Error deleting old entries from {table_name}: {e}")
-        # If this fails, we might have issues. For now, proceeding.
-        # Consider raising an error or handling more robustly in production.
+        print(f"ML Pipeline: Error checking existing classifications: {e}")
+        existing_count = 0
 
+    # Add company_code to all classifications if provided
+    if company_code is not None:
+        for classification in classifications_to_save:
+            classification['company_code'] = company_code
+    else:
+        for classification in classifications_to_save:
+            classification['company_code'] = None
+
+    # Show sample data for debugging
+    sample_data = classifications_to_save[:5] if len(classifications_to_save) > 5 else classifications_to_save
+    print(f"ML Pipeline: Processing {len(classifications_to_save)} classifications. Sample: {sample_data}")
+    
+    # Use ON DUPLICATE KEY UPDATE to handle existing records
     insert_query = f"""
-    INSERT INTO {table_name} (item_po_id, item_description, cluster_label, layer_name) 
-    VALUES (%(item_po_id)s, %(item_description)s, %(cluster_label)s, %(layer_name)s)
+    INSERT INTO {table_name} (item_po_id, item_description, cluster_label, layer_name, company_code) 
+    VALUES (%(item_po_id)s, %(item_description)s, %(cluster_label)s, %(layer_name)s, %(company_code)s)
+    ON DUPLICATE KEY UPDATE 
+        item_description = VALUES(item_description),
+        cluster_label = VALUES(cluster_label)
     """
+    
     try:
-        batch_size = 500  # Define a suitable batch size
+        # Process in batches
+        batch_size = 500
         total_rows = len(classifications_to_save)
         
-        if total_rows == 0:
-            print("ML Pipeline: No parsed L2 classifications to save.")
+        for i in range(0, total_rows, batch_size):
+            batch = classifications_to_save[i:i + batch_size]
+            cursor.executemany(insert_query, batch)
+            conn.commit()  # Commit each batch
+            print(f"ML Pipeline: Processed batch {i//batch_size + 1}/{(total_rows+batch_size-1)//batch_size} ({len(batch)} items)")
+        
+        # Check how many classifications we have now
+        if company_code:
+            cursor.execute(f"SELECT COUNT(*) FROM {table_name} WHERE company_code = %s", (company_code,))
         else:
-            print(
-                f"ML Pipeline: Inserting {total_rows} parsed L2 classifications in batches of {batch_size}.")
-            try:
-                for i in range(0, total_rows, batch_size):
-                    batch_data = classifications_to_save[i:i + batch_size]
-                    cursor.executemany(insert_query, batch_data)
-                    conn.commit()  # Commit after each successful batch
-                    print(f"ML Pipeline: Saved batch {i // batch_size + 1}/{(total_rows + batch_size - 1) // batch_size} ({len(batch_data)} rows)")
-                print("ML Pipeline: All parsed L2 classifications saved successfully.")
-            except Exception as e:
-                print(f"ML Pipeline: Error saving parsed L2 classifications batch: {e}")
-                conn.rollback()  # Rollback if any batch fails
+            cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+        new_count = cursor.fetchone()[0]
+        
+        print(f"ML Pipeline: Now have {new_count} total classifications (added/updated {new_count - existing_count})")
+        print("ML Pipeline: Classification data updated successfully.")
+    except Exception as e:
+        print(f"ML Pipeline: Error saving classifications: {e}")
+        conn.rollback()
     finally:
         cursor.close()
         conn.close()
 
 
-def get_layer_definition_pk(layer_name_db: str, cluster_label_id: str, cursor) -> int | None:
+def get_layer_definition_pk(layer_name_db: str, cluster_label_id: str, cursor, company_code=None) -> int | None:
     """
     Fetches the primary key 'id' from layer_definitions for a given layer_name_db and cluster_label_id.
     This is crucial for linking parent-child layers.
     """
-    query = "SELECT id FROM layer_definitions WHERE layer_name_db = %s AND cluster_label_id = %s"
-    try:
+    if company_code:
+        query = "SELECT id FROM layer_definitions WHERE layer_name_db = %s AND cluster_label_id = %s AND company_code = %s"
+        cursor.execute(query, (layer_name_db, cluster_label_id, company_code))
+    else:
+        query = "SELECT id FROM layer_definitions WHERE layer_name_db = %s AND cluster_label_id = %s"
         cursor.execute(query, (layer_name_db, cluster_label_id))
+    try:
         result = cursor.fetchone()
         if result:
             return result[0]
@@ -193,14 +233,16 @@ def get_layer_definition_pk(layer_name_db: str, cluster_label_id: str, cursor) -
         return None
 
 
-def create_and_populate_parsed_layer_definitions(definitions_to_insert: list):
+def create_and_populate_parsed_layer_definitions(definitions_to_insert: list, company_code=None):
     """
     Populates the layer_definitions table with parsed folder names.
     Each entry in definitions_to_insert is a dict:
     {'layer_name_db': str, 'cluster_label_id': str, 'descriptive_name': str, 'parent_layer_pk': int | None}
+    
+    Now uses an upsert approach to preserve existing data.
     """
     if not definitions_to_insert:
-        print("No parsed layer definitions to insert.")
+        print("ML Pipeline: No layer definitions to insert.")
         return
 
     conn = get_mysql_connection()
@@ -210,32 +252,64 @@ def create_and_populate_parsed_layer_definitions(definitions_to_insert: list):
     cursor = conn.cursor()
     table_name = "layer_definitions"
 
-    # Deletion is now handled once at the beginning of the main pipeline function.
-    # try:
-    #     delete_query = f"DELETE FROM {table_name}"
-    #     print(
-    #         f"ML Pipeline: Deleting ALL old definitions from '{table_name}'.")
-    #     cursor.execute(delete_query)
-    #     conn.commit()
-    #     print(
-    #         f"ML Pipeline: Deleted {cursor.rowcount} old definitions from {table_name}.")
-    # except Exception as e:
-    #     print(
-    #         f"ML Pipeline: Error deleting old definitions from {table_name}: {e}")
+    # Instead of deleting, get a count of existing definitions
+    target_layer_names = set(item["layer_name_db"] for item in definitions_to_insert)
+    for layer_name in target_layer_names:
+        try:
+            if company_code:
+                cursor.execute(
+                    f"SELECT COUNT(*) FROM {table_name} WHERE layer_name_db = %s AND company_code = %s", 
+                    (layer_name, company_code)
+                )
+            else:
+                cursor.execute(
+                    f"SELECT COUNT(*) FROM {table_name} WHERE layer_name_db = %s", 
+                    (layer_name,)
+                )
+            existing_count = cursor.fetchone()[0]
+            print(f"ML Pipeline: Found {existing_count} existing definitions for '{layer_name}'")
+        except Exception as e:
+            print(f"ML Pipeline: Error checking existing entries for {layer_name}: {e}")
 
+    # Use ON DUPLICATE KEY UPDATE to handle existing records
     insert_query = f"""
-    INSERT INTO {table_name} (layer_name_db, cluster_label_id, descriptive_name, parent_layer_id) 
-    VALUES (%(layer_name_db)s, %(cluster_label_id)s, %(descriptive_name)s, %(parent_layer_pk)s)
+    INSERT INTO {table_name} (layer_name_db, cluster_label_id, descriptive_name, parent_layer_id, company_code) 
+    VALUES (%(layer_name_db)s, %(cluster_label_id)s, %(descriptive_name)s, %(parent_layer_pk)s, %(company_code)s)
+    ON DUPLICATE KEY UPDATE
+        descriptive_name = VALUES(descriptive_name),
+        parent_layer_id = VALUES(parent_layer_id)
     """
+    
+    # Add company_code to all definitions
+    for definition in definitions_to_insert:
+        definition['company_code'] = company_code
+        
+    # Print sample data for debugging
+    sample_data = definitions_to_insert[:5] if len(definitions_to_insert) > 5 else definitions_to_insert
+    print(f"ML Pipeline: Processing {len(definitions_to_insert)} layer definitions. Sample data: {sample_data}")
+    
     try:
-        print(
-            # Print sample
-            f"ML Pipeline: Inserting {len(definitions_to_insert)} parsed layer definitions. Sample data: {definitions_to_insert[:5]}")
         cursor.executemany(insert_query, definitions_to_insert)
         conn.commit()
-        print("ML Pipeline: Parsed layer definitions populated successfully.")
+        
+        # Check how many records we have now
+        for layer_name in target_layer_names:
+            if company_code:
+                cursor.execute(
+                    f"SELECT COUNT(*) FROM {table_name} WHERE layer_name_db = %s AND company_code = %s", 
+                    (layer_name, company_code)
+                )
+            else:
+                cursor.execute(
+                    f"SELECT COUNT(*) FROM {table_name} WHERE layer_name_db = %s", 
+                    (layer_name,)
+                )
+            current_count = cursor.fetchone()[0]
+            print(f"ML Pipeline: Now have {current_count} layer definitions for '{layer_name}'")
+            
+        print("ML Pipeline: Layer definitions updated successfully.")
     except Exception as e:
-        print(f"ML Pipeline: Error populating parsed layer definitions: {e}")
+        print(f"ML Pipeline: Error updating layer definitions: {e}")
         conn.rollback()
     finally:
         cursor.close()
@@ -336,46 +410,54 @@ def parse_item_description_for_folders(description: str) -> tuple[str | None, st
 
 # --- Main Training Orchestration --- (Now for Parsing and DB Population)
 
-def run_folder_generation_pipeline():
+def run_folder_generation_pipeline(company_code=None):
     """
     Orchestrates the new parsing-based folder generation.
     """
-    print("ML Pipeline: Starting new folder generation logic...")
+    print("ML Pipeline: Starting folder generation logic with data preservation...")
 
-    # --- Clear relevant tables once at the beginning ---
-    conn_clear = get_mysql_connection()
-    if not conn_clear:
-        print("ML Pipeline: DB connection failed, cannot clear tables. Aborting.")
+    # --- Check existing data instead of clearing tables ---
+    conn = get_mysql_connection()
+    if not conn:
+        print("ML Pipeline: DB connection failed, cannot check tables. Aborting.")
         return
-    cursor_clear = conn_clear.cursor()
+    cursor = conn.cursor()
+    
     try:
-        print("ML Pipeline: Clearing item_classifications and layer_definitions for parsed data...")
-        cursor_clear.execute(
-            f"DELETE FROM item_classifications WHERE layer_name LIKE 'L%_Parsed_Folders'")
-        print(f"Deleted {cursor_clear.rowcount} from item_classifications.")
-        cursor_clear.execute(
-            f"DELETE FROM layer_definitions WHERE layer_name_db LIKE 'L%_Parsed_Folders'")
-        print(f"Deleted {cursor_clear.rowcount} from layer_definitions.")
-        conn_clear.commit()
+        # Rather than deleting, check how many records exist
+        if company_code:
+            # Only for specific company
+            cursor.execute("SELECT COUNT(*) FROM item_classifications WHERE layer_name LIKE 'L%_Parsed_Folders' AND company_code = %s", (company_code,))
+            item_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM layer_definitions WHERE layer_name_db LIKE 'L%_Parsed_Folders' AND company_code = %s", (company_code,))
+            layer_count = cursor.fetchone()[0]
+            print(f"ML Pipeline: Found {item_count} existing classifications and {layer_count} layer definitions for company {company_code}")
+        else:
+            # For all companies
+            cursor.execute("SELECT COUNT(*) FROM item_classifications WHERE layer_name LIKE 'L%_Parsed_Folders'")
+            item_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM layer_definitions WHERE layer_name_db LIKE 'L%_Parsed_Folders'")
+            layer_count = cursor.fetchone()[0]
+            print(f"ML Pipeline: Found {item_count} existing classifications and {layer_count} layer definitions across all companies")
     except Exception as e:
-        print(f"ML Pipeline: Error clearing tables: {e}")
-        conn_clear.rollback()
+        print(f"ML Pipeline: Error checking existing data: {e}")
     finally:
-        cursor_clear.close()
-        conn_clear.close()
+        cursor.close()
+        conn.close()
 
-    all_po_items_df = fetch_item_data_for_ml()  # Fetches all rows with descriptions
+    # 1. Fetch item data from purchase_orders
+    items_df = fetch_item_data_for_ml(company_code)  # Fetches all rows with descriptions
 
-    if all_po_items_df.empty:
+    if items_df.empty:
         print("ML Pipeline: No item data fetched. Aborting folder generation.")
         return
 
-    if 'description_for_embedding' not in all_po_items_df.columns:
+    if 'description_for_embedding' not in items_df.columns:
         print("ML Pipeline: 'description_for_embedding' column is missing. Aborting.")
         return
 
     parsed_folders = []
-    for index, row in all_po_items_df.iterrows():
+    for index, row in items_df.iterrows():
         description = row['description_for_embedding']
         po_id = row['id']  # Original PO id
 
@@ -402,7 +484,7 @@ def run_folder_generation_pipeline():
             "parent_layer_pk": None
         })
 
-    create_and_populate_parsed_layer_definitions(l1_definitions_to_insert)
+    create_and_populate_parsed_layer_definitions(l1_definitions_to_insert, company_code)
     print(
         f"ML Pipeline: Processed {len(unique_l1_folders)} L1 folder definitions.")
 
@@ -427,7 +509,7 @@ def run_folder_generation_pipeline():
 
     for l1_name, items_in_l1 in items_by_l1.items():
         parent_l1_pk = get_layer_definition_pk(
-            "L1_Parsed_Folders", l1_name, cursor_for_parent_pk)
+            "L1_Parsed_Folders", l1_name, cursor_for_parent_pk, company_code)
         if parent_l1_pk is None:
             print(
                 f"Warning: Could not find PK for L1 folder '{l1_name}'. Skipping L2 definitions under it.")
@@ -459,11 +541,11 @@ def run_folder_generation_pipeline():
     if conn_for_parent_pk and conn_for_parent_pk.is_connected():
         conn_for_parent_pk.close()
 
-    create_and_populate_parsed_layer_definitions(l2_definitions_to_insert)
+    create_and_populate_parsed_layer_definitions(l2_definitions_to_insert, company_code)
     print(
         f"ML Pipeline: Processed {len(l2_definitions_to_insert)} L2 folder definitions.")
 
-    save_parsed_item_classifications(item_l2_classifications_to_save)
+    save_parsed_item_classifications(item_l2_classifications_to_save, company_code)
     print(
         f"ML Pipeline: Processed {len(item_l2_classifications_to_save)} L2 item classifications.")
 
@@ -472,5 +554,7 @@ def run_folder_generation_pipeline():
 
 if __name__ == "__main__":
     print("Running ML Folder Generation Pipeline directly for testing...")
+    # You can specify a company_code here for testing
+    # For example: run_folder_generation_pipeline(180)
     run_folder_generation_pipeline()
     print("\nFolder generation pipeline (parsing part) finished.")

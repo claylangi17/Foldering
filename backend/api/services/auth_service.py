@@ -13,7 +13,7 @@ def get_user_by_username(username: str) -> Optional[UserInDB]:
         return None
 
     cursor = conn.cursor(dictionary=True)
-    query = f"SELECT id, username, email, full_name, hashed_password, role, disabled FROM {USERS_TABLE_NAME} WHERE username = %s"
+    query = f"SELECT id, username, email, full_name, hashed_password, role, disabled, company_code, created_at, updated_at FROM {USERS_TABLE_NAME} WHERE username = %s"
     try:
         cursor.execute(query, (username,))
         user_data = cursor.fetchone()
@@ -52,8 +52,8 @@ def create_user(user_in: UserCreate) -> Optional[User]:
     # but we can be explicit or allow role setting during creation if needed.
     # For now, using the schema default.
     query = f"""
-        INSERT INTO {USERS_TABLE_NAME} (username, email, full_name, hashed_password, role, disabled)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO {USERS_TABLE_NAME} (username, email, full_name, hashed_password, role, disabled, company_code)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
     """
     # Assuming default role 'user' and disabled 'False' for new users
     # Role can be enhanced later (e.g. admin creates SPV)
@@ -67,20 +67,23 @@ def create_user(user_in: UserCreate) -> Optional[User]:
             user_in.full_name,
             hashed_password,
             default_role,  # Explicitly set default role
-            default_disabled_status  # Explicitly set default disabled status
+            default_disabled_status,  # Explicitly set default disabled status
+            user_in.company_code  # Include company_code
         ))
         conn.commit()
         user_id = cursor.lastrowid
         if user_id:
-            # Return a User schema object (doesn't include hashed_password)
-            return User(
-                id=user_id,
-                username=user_in.username,
-                email=user_in.email,
-                full_name=user_in.full_name,
-                role=default_role,
-                disabled=default_disabled_status
-            )
+            # Fetch the newly created user to get all fields, including DB-generated ones like created_at, updated_at
+            # get_user_by_username returns UserInDB, which includes hashed_password.
+            # We need to return a User object (which doesn't have hashed_password).
+            newly_created_user_in_db = get_user_by_username(user_in.username)
+            if newly_created_user_in_db:
+                # Convert UserInDB to User. User schema inherits from UserInDBBase.
+                return User.model_validate(newly_created_user_in_db) # Pydantic v2 way
+                # For Pydantic v1, it would be User.from_orm(newly_created_user_in_db) or User(**newly_created_user_in_db.dict())
+            # Fallback or error if user couldn't be re-fetched, though unlikely if insert succeeded.
+            print(f"AuthService: Could not re-fetch user '{user_in.username}' after creation.")
+            return None
         return None
     except Exception as e:
         print(f"AuthService: Error creating user '{user_in.username}': {e}")
